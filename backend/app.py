@@ -1,92 +1,33 @@
-"""
-MotoSense AI
-Main Backend Application
-
-Phase 1:
-Clean backend foundation only.
-
-No camera.
-No YOLO.
-No ultrasonic.
-No Arduino.
-No weather.
-No SOS.
-"""
-from front.yolo import YOLODetector
 from flask import Flask, jsonify
+from flask_cors import CORS
 
-from config import (
-    PROJECT_NAME,
-    VERSION,
-    PLATFORM,
-    HOST,
-    PORT,
-)
-
-
-# ============================================================
-# FLASK APPLICATION
-# ============================================================
 
 app = Flask(__name__)
-yolo_detector = YOLODetector()
+CORS(app)
 
-# ============================================================
-# ROOT
-# ============================================================
-
-@app.route("/", methods=["GET"])
+@app.get("/")
 def home():
-
-    return jsonify({
-        "project": PROJECT_NAME,
-        "version": VERSION,
-        "platform": PLATFORM,
-        "status": "Backend Running",
-    })
-
-
-# ============================================================
-# SYSTEM STATUS
-# ============================================================
-
-@app.route("/api/system/status", methods=["GET"])
-def system_status():
-
-    return jsonify({
-        "project": PROJECT_NAME,
-        "version": VERSION,
-        "platform": PLATFORM,
+     return jsonify({
+        "project": "MotoSense AI",
         "backend": True,
+        "platform": "Raspberry Pi 4B",
         "status": "RUNNING",
+        "version": "1.0.0"
     })
 
-@app.route("/api/ai", methods=["GET"])
-def ai_status():
 
-    return jsonify(
-        yolo_detector.get_state()
-    )
+@app.get("/api/status")
+def status():
+    return jsonify({
+        "backend": True,
+        "camera": "READY",
+        "ai": "NOT_LOADED",
+        "platform": "Raspberry Pi 4B"
+    })
 
-
-# ============================================================
-# START SERVER
-# ============================================================
 if __name__ == "__main__":
-
-    print("==========================================")
-    print("        MOTOSENSE AI BACKEND")
-    print("==========================================")
-    print(f"Project  : {PROJECT_NAME}")
-    print(f"Version  : {VERSION}")
-    print(f"Platform : {PLATFORM}")
-    print(f"Server   : http://{HOST}:{PORT}")
-    print("==========================================")
-
-    yolo_detector.start()
-
     app.run(
-        host=HOST,
-        port=PORT,
-        debug=False,
+        host="0.0.0.0",
+        port=5000,
+        debug=False
     )

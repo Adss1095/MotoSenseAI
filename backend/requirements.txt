@@ -1,1 +1,5 @@
 Flask
+Flask-CORS
+onnxruntime
+numpy
+opencv-python

@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+
+venv/
+.venv/
+
+*.onnx
+
+logs/*.json
+logs/*.csv
+logs/*.log
+
+.env
