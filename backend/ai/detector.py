@@ -1,91 +1,67 @@
 """
 MotoSense AI
-AI Object Detection Module
+YOLO Object Detection
 
-Phase 2:
-Raspberry Pi Camera Module 3 + YOLO11n
-
-Responsibilities:
-- Start Raspberry Pi Camera
-- Load YOLO11n model
-- Run object detection
-- Track the highest-confidence detected object
-- Provide the latest AI state to the Flask backend
+Raspberry Pi 4B + Camera Module 3
 """
 
-import os
-import time
 import threading
+import time
 
-from picamera2 import Picamera2
 from ultralytics import YOLO
 
-
-# ============================================================
-# PATH CONFIGURATION
-# ============================================================
-
-# detector.py is located at:
-# MotoSenseAI/backend/ai/detector.py
-#
-# YOLO model is located at:
-# MotoSenseAI/backend/yolo11n.pt
-
-BASE_DIR = os.path.dirname(
-    os.path.dirname(
-        os.path.abspath(__file__)
-    )
-)
-
-MODEL_PATH = os.path.join(
-    BASE_DIR,
-    "yolo11n.pt"
+from config import (
+    YOLO_MODEL,
+    YOLO_CONFIDENCE,
+    YOLO_IMAGE_SIZE,
 )
 
 
-# ============================================================
-# DETECTION CONFIGURATION
-# ============================================================
-
-CONFIDENCE = 0.30
-
-CAMERA_WIDTH = 640
-CAMERA_HEIGHT = 480
-
-IMAGE_SIZE = 320
-
-
-# ============================================================
-# AI STATE
-# ============================================================
-
-AI_STATE = {
-    "running": False,
-    "status": "STARTING",
-    "object": None,
-    "confidence": None,
-    "timestamp": None,
+DANGEROUS_OBJECTS = {
+    "person",
+    "bicycle",
+    "motorcycle",
+    "car",
+    "bus",
+    "truck",
+    "train",
 }
 
-AI_STATE_LOCK = threading.Lock()
-
-
-# ============================================================
-# YOLO DETECTOR
-# ============================================================
 
 class YOLODetector:
 
-    def __init__(self):
+    def __init__(self, camera):
 
-        self.camera = None
+        self.camera = camera
+
         self.model = None
 
         self.running = False
+
         self.thread = None
 
+        self.lock = threading.Lock()
+
+        self.state = {
+            "running": False,
+            "status": "STARTING",
+            "danger_level": "GREEN",
+
+            "object": None,
+            "confidence": None,
+
+            "box": None,
+            "box_area_ratio": 0.0,
+
+            "center_x": None,
+            "center_y": None,
+
+            "timestamp": None,
+        }
+
+
     # ========================================================
-    # START DETECTOR
+    # START
     # ========================================================
 
     def start(self):
@@ -93,123 +69,51 @@ class YOLODetector:
         if self.running:
             return
 
-        try:
+        print("[YOLO] Loading model...")
 
-            print("Starting camera...")
+        self.model = YOLO(YOLO_MODEL)
 
-            # ------------------------------------------------
-            # INITIALIZE CAMERA
-            # ------------------------------------------------
+        print("[YOLO] Model loaded.")
 
-            self.camera = Picamera2()
+        self.running = True
 
-            self.camera.configure(
-                self.camera.create_preview_configuration(
-                    main={
-                        "size": (
-                            CAMERA_WIDTH,
-                            CAMERA_HEIGHT
-                        ),
-                        "format": "RGB888",
-                    }
-                )
-            )
+        self.thread = threading.Thread(
+            target=self._loop,
+            daemon=True
+        )
 
-            self.camera.start()
-
-            print("Camera started.")
-
-            # ------------------------------------------------
-            # LOAD YOLO MODEL
-            # ------------------------------------------------
-
-            print(
-                f"Loading YOLO model: {MODEL_PATH}"
-            )
-
-            if not os.path.exists(MODEL_PATH):
-
-                raise FileNotFoundError(
-                    f"YOLO model not found: {MODEL_PATH}"
-                )
-
-            self.model = YOLO(
-                MODEL_PATH
-            )
-
-            print("YOLO model loaded.")
-
-            # ------------------------------------------------
-            # START DETECTION
-            # ------------------------------------------------
-
-            self.running = True
-
-            with AI_STATE_LOCK:
-
-                AI_STATE["running"] = True
-                AI_STATE["status"] = "RUNNING"
-                AI_STATE["object"] = None
-                AI_STATE["confidence"] = None
-                AI_STATE["timestamp"] = time.time()
-
-            self.thread = threading.Thread(
-                target=self._detection_loop,
-                daemon=True
-            )
-
-            self.thread.start()
-
-            print("YOLO detection started.")
-
-        except Exception as error:
-
-            self.running = False
-
-            with AI_STATE_LOCK:
-
-                AI_STATE["running"] = False
-                AI_STATE["status"] = "ERROR"
-                AI_STATE["object"] = None
-                AI_STATE["confidence"] = None
-                AI_STATE["timestamp"] = time.time()
-
-            print(
-                f"YOLO startup error: {error}"
-            )
-
+        self.thread.start()
     # ========================================================
     # DETECTION LOOP
     # ========================================================
 
-    def _detection_loop(self):
+    def _loop(self):
 
         while self.running:
 
+            frame = self.camera.capture()
+
+            if frame is None:
+
+                time.sleep(0.2)
+
+                continue
+
+
             try:
-
-                # ------------------------------------------------
-                # CAPTURE FRAME
-                # ------------------------------------------------
-
-                frame = self.camera.capture_array()
-
-                # ------------------------------------------------
-                # RUN YOLO
-                # ------------------------------------------------
 
                 results = self.model(
                     frame,
-                    conf=CONFIDENCE,
-                    imgsz=IMAGE_SIZE,
+                    conf=YOLO_CONFIDENCE,
+                    imgsz=YOLO_IMAGE_SIZE,
                     verbose=False
                 )
 
-                detected_object = None
-                detected_confidence = None
+                best = None
+
 
                 # ------------------------------------------------
-                # FIND HIGHEST-CONFIDENCE OBJECT
+                # FIND MOST IMPORTANT DETECTION
                 # ------------------------------------------------
 
                 for result in results:
@@ -222,90 +126,229 @@ class YOLODetector:
                         confidence = float(
                             box.conf[0]
                         )
-
-                        if (
-                            detected_confidence is None
-                            or
-                            confidence > detected_confidence
-                        ):
-
-                            class_id = int(
-                                box.cls[0]
-                            )
-
-                            detected_object = (
-                                self.model.names[class_id]
-                            )
-
-                            detected_confidence = round(
-                                confidence,
-                                3
-                            )
-
-                # ------------------------------------------------
-                # UPDATE AI STATE
-                # ------------------------------------------------
-
-                with AI_STATE_LOCK:
-
-                    AI_STATE["running"] = True
-
-                    if detected_object:
-
-                        AI_STATE["status"] = (
-                            "OBJECT_DETECTED"
+                        class_id = int(
+                            box.cls[0]
                         )
 
-                    else:
+                        name = self.model.names[
+                            class_id
+                        ]
 
-                        AI_STATE["status"] = "CLEAR"
+                        if name not in DANGEROUS_OBJECTS:
+                            continue
 
-                    AI_STATE["object"] = (
-                        detected_object
+                        coordinates = (
+                            box.xyxy[0]
+                            .tolist()
+                        )
+
+                        x1, y1, x2, y2 = coordinates
+
+                        width = max(
+                            0,
+                            x2 - x1
+                        )
+
+                        height = max(
+                            0,
+                            y2 - y1
+                        )
+
+                        frame_height, frame_width = (
+                            frame.shape[:2]
+                        )
+
+                        area_ratio = (
+                            width * height
+                        ) / (
+                            frame_width * frame_height
+                        )
+
+                        center_x = (
+                            (x1 + x2) / 2
+                        ) / frame_width
+
+                        center_y = (
+                            (y1 + y2) / 2
+                        ) / frame_height
+
+
+                        candidate = {
+                            "object": name,
+                            "confidence": round(
+                                confidence,
+                                3
+                            ),
+                            "box": [
+                                round(x1),
+                                round(y1),
+                                round(x2),
+                                round(y2)
+                            ],
+                            "box_area_ratio": round(
+                                area_ratio,
+                                4
+                            ),
+                            "center_x": round(
+                                center_x,
+                                3
+                            ),
+                            "center_y": round(
+                                center_y,
+                                3
+                            )
+                        }
+
+
+                        if (
+                            best is None
+                            or
+                            confidence >
+                            best["confidence"]
+                        ):
+
+                            best = candidate
+
+
+                # ------------------------------------------------
+                # DETERMINE DANGER
+                # ------------------------------------------------
+
+                if best is None:
+
+                    new_state = {
+                        "running": True,
+                        "status": "CLEAR",
+                        "danger_level": "GREEN",
+
+                        "object": None,
+                        "confidence": None,
+
+                        "box": None,
+                        "box_area_ratio": 0.0,
+
+                        "center_x": None,
+                        "center_y": None,
+
+                        "timestamp": time.time()
+                    }
+
+                else:
+
+                    danger_level = (
+                        self._calculate_danger(
+                            best
+                        )
                     )
 
-                    AI_STATE["confidence"] = (
-                        detected_confidence
+                    status = (
+                        "OBJECT_DETECTED"
                     )
 
-                    AI_STATE["timestamp"] = (
-                        time.time()
-                    )
+                    if danger_level == "RED":
+                        status = "FORWARD_COLLISION"
+
+                    elif danger_level == "YELLOW":
+                        status = "FORWARD_WARNING"
+
+
+                    new_state = {
+                        "running": True,
+                        "status": status,
+                        "danger_level": danger_level,
+
+                        "object": best["object"],
+                        "confidence": best["confidence"],
+
+                        "box": best["box"],
+                        "box_area_ratio": best[
+                            "box_area_ratio"
+                        ],
+
+                        "center_x": best["center_x"],
+                        "center_y": best["center_y"],
+
+                        "timestamp": time.time()
+                    }
+
+
+                with self.lock:
+                    self.state = new_state
+
 
             except Exception as error:
 
-                with AI_STATE_LOCK:
-
-                    AI_STATE["running"] = False
-
-                    AI_STATE["status"] = "ERROR"
-
-                    AI_STATE["object"] = None
-
-                    AI_STATE["confidence"] = None
-
-                    AI_STATE["timestamp"] = (
-                        time.time()
-                    )
-
                 print(
-                    f"YOLO detection error: {error}"
+                    f"[YOLO] Error: {error}"
                 )
+
+                with self.lock:
+
+                    self.state.update({
+                        "running": False,
+                        "status": "ERROR",
+                        "danger_level": "GREEN",
+                        "timestamp": time.time()
+                    })
 
                 time.sleep(1)
 
+
     # ========================================================
-    # GET CURRENT AI STATE
+    # DANGER CALCULATION
+    # ========================================================
+
+    def _calculate_danger(self, detection):
+
+        area = detection[
+            "box_area_ratio"
+        ]
+
+        center_x = detection[
+            "center_x"
+        ]
+
+        center_y = detection[
+            "center_y"
+        ]
+
+
+        # Object must generally be in front
+        central = (
+            0.20 <= center_x <= 0.80
+            and
+            center_y >= 0.20
+        )
+
+
+        if not central:
+            return "GREEN"
+
+
+        # Large object = very close
+        if area >= 0.25:
+            return "RED"
+
+
+        # Medium object
+        if area >= 0.08:
+            return "YELLOW"
+
+
+        return "GREEN"
+
+
+    # ========================================================
+    # STATE
     # ========================================================
 
     def get_state(self):
 
-        with AI_STATE_LOCK:
-
-            return AI_STATE.copy()
+        with self.lock:
+            return self.state.copy()
 
     # ========================================================
-    # STOP DETECTOR
+    # STOP
     # ========================================================
 
     def stop(self):
@@ -316,30 +359,4 @@ class YOLODetector:
 
             self.thread.join(
                 timeout=2
-            )
-
-            self.thread = None
-
-        if self.camera:
-
-            try:
-
-                self.camera.stop()
-
-            except Exception as error:
-
-                print(
-                    f"Camera stop error: {error}"
-                )
-
-            self.camera = None
-
-        with AI_STATE_LOCK:
-
-            AI_STATE["running"] = False
-            AI_STATE["status"] = "STOPPED"
-            AI_STATE["object"] = None
-            AI_STATE["confidence"] = None
-            AI_STATE["timestamp"] = time.time()
-
-        print("YOLO detection stopped.")
+   )

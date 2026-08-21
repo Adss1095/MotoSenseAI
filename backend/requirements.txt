@@ -1,5 +1,9 @@
 Flask
 Flask-CORS
-onnxruntime
+pyserial
 numpy
 opencv-python
+picamera2
+ultralytics
+torch
+torchvision

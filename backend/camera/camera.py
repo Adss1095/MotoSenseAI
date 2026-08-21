@@ -1,30 +1,142 @@
+"""
+MotoSense AI
+Raspberry Pi Camera Module 3
+"""
+
+import threading
+import time
+
 from picamera2 import Picamera2
-import cv2
+
+from config import CAMERA_WIDTH, CAMERA_HEIGHT
 
 
-class Camera:
-    def __init__(self, width=640, height=480):
-        self.picam2 = Picamera2()
+class CameraManager:
 
-        config = self.picam2.create_video_configuration(
-            main={
-                "size": (width, height),
-                "format": "RGB888"
-            }
-        )
+    def __init__(self):
 
-        self.picam2.configure(config)
-        self.picam2.start()
+        self.camera = None
+        self.running = False
 
-    def read(self):
-        frame = self.picam2.capture_array()
+        self.lock = threading.Lock()
 
-        frame = cv2.cvtColor(
-            frame,
-            cv2.COLOR_RGB2BGR
-        )
+        self.latest_frame = None
+        self.last_frame_time = None
 
-        return frame
+
+    # ========================================================
+    # START CAMERA
+    # ========================================================
+
+    def start(self):
+
+        if self.running:
+            return True
+
+        try:
+
+            self.camera = Picamera2()
+
+            configuration = (
+                self.camera
+                .create_preview_configuration(
+                    main={
+                        "size": (
+                            CAMERA_WIDTH,
+                            CAMERA_HEIGHT
+                        ),
+                        "format": "RGB888"
+                    }
+                )
+            )
+
+            self.camera.configure(configuration)
+
+            self.camera.start()
+
+            time.sleep(1)
+
+            self.running = True
+
+            return True
+
+        except Exception as error:
+
+            print(
+                f"[CAMERA] Start error: {error}"
+            )
+
+            self.running = False
+
+            return False
+
+
+    # ========================================================
+    # CAPTURE
+    # ========================================================
+
+    def capture(self):
+
+        if not self.running or self.camera is None:
+            return None
+
+        try:
+
+            frame = self.camera.capture_array()
+
+            with self.lock:
+
+                self.latest_frame = frame
+                self.last_frame_time = time.time()
+
+            return frame
+
+        except Exception as error:
+
+            print(
+                f"[CAMERA] Capture error: {error}"
+            )
+
+            return None
+
+
+    # ========================================================
+    # LATEST FRAME
+    # ========================================================
+
+    def get_latest_frame(self):
+
+        with self.lock:
+            return self.latest_frame
+
+
+    # ========================================================
+    # STATUS
+    # ========================================================
+
+    def get_status(self):
+
+        return {
+            "connected": self.running,
+            "width": CAMERA_WIDTH,
+            "height": CAMERA_HEIGHT,
+            "last_frame": self.last_frame_time
+        }
+
+
+    # ========================================================
+    # STOP
+    # ========================================================
 
     def stop(self):
-        self.picam2.stop()
+
+        self.running = False
+
+        if self.camera:
+
+            try:
+                self.camera.stop()
+            except Exception:
+                pass
+
+            self.camera = None

@@ -1,54 +1,125 @@
 """
 MotoSense AI
-Danger Assessment
-
-Converts YOLO bounding-box size into a
-basic proximity/danger level.
-
-This is an image-based proximity estimate,
-not a physical distance measurement.
+Danger Classification
 """
 
+import threading
+import time
 
-def calculate_danger(
-    bbox,
-    frame_width,
-    frame_height
-):
-    """
-    Calculate danger level from bounding-box area.
 
-    Returns:
-        danger_level
-        proximity_ratio
-    """
+class DangerManager:
 
-    if not bbox:
-        return "SAFE", 0.0
+    def __init__(self):
 
-    x1, y1, x2, y2 = bbox
+        self.lock = threading.Lock()
 
-    box_width = max(0, x2 - x1)
-    box_height = max(0, y2 - y1)
+        self.state = {
+            "front": "GREEN",
+            "rear": "GREEN",
 
-    box_area = box_width * box_height
-    frame_area = frame_width * frame_height
+            "overall": "GREEN",
 
-    if frame_area <= 0:
-        return "SAFE", 0.0
+            "forward_collision": False,
+            "rear_collision": False,
 
-    proximity_ratio = box_area / frame_area
+            "timestamp": None
+        }
 
-    if proximity_ratio >= 0.35:
-        danger_level = "CRITICAL"
 
-    elif proximity_ratio >= 0.15:
-        danger_level = "WARNING"
+    # ========================================================
+    # UPDATE FRONT
+    # ========================================================
 
-    else:
-        danger_level = "SAFE"
+    def update_front(self, yolo_state):
 
-    return (
-        danger_level,
-        round(proximity_ratio, 3)
-    )
+        danger = yolo_state.get(
+            "danger_level",
+            "GREEN"
+        )
+
+        with self.lock:
+
+            self.state[
+                "front"
+            ] = danger
+
+            self.state[
+                "forward_collision"
+            ] = (
+                danger == "RED"
+            )
+
+            self._update_overall()
+
+
+    # ========================================================
+    # UPDATE REAR
+    # ========================================================
+
+    def update_rear(self, rear_state):
+
+        danger = rear_state.get(
+            "danger_level",
+            "GREEN"
+        )
+
+        with self.lock:
+
+            self.state[
+                "rear"
+            ] = danger
+
+            self.state[
+                "rear_collision"
+            ] = (
+                danger == "RED"
+            )
+
+            self._update_overall()
+
+
+    # ========================================================
+    # OVERALL
+    # ========================================================
+
+    def _update_overall(self):
+
+        front = self.state["front"]
+        rear = self.state["rear"]
+
+        if (
+            front == "RED"
+            or
+            rear == "RED"
+        ):
+
+            overall = "RED"
+
+        elif (
+            front == "YELLOW"
+            or
+            rear == "YELLOW"
+        ):
+
+            overall = "YELLOW"
+
+        else:
+
+            overall = "GREEN"
+
+
+        self.state["overall"] = overall
+
+        self.state["timestamp"] = (
+            time.time()
+        )
+
+
+    # ========================================================
+    # STATE
+    # ========================================================
+
+    def get_state(self):
+
+        with self.lock:
+            return self.state.copy()
