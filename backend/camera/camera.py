@@ -1,6 +1,7 @@
 """
 MotoSense AI
 Raspberry Pi Camera Module 3
+Wider-angle front camera capture
 """
 
 import threading
@@ -24,9 +25,9 @@ class CameraManager:
         self.last_frame_time = None
 
 
-    # ========================================================
+    # ============================================================
     # START CAMERA
-    # ========================================================
+    # ============================================================
 
     def start(self):
 
@@ -37,16 +38,19 @@ class CameraManager:
 
             self.camera = Picamera2()
 
+            # 16:9 capture gives a wider horizontal field of view
+            # than the previous 4:3 640x480 configuration.
+
             configuration = (
-                self.camera
-                .create_preview_configuration(
+                self.camera.create_video_configuration(
                     main={
                         "size": (
                             CAMERA_WIDTH,
                             CAMERA_HEIGHT
                         ),
                         "format": "RGB888"
-                    }
+                    },
+                    buffer_count=4
                 )
             )
 
@@ -57,6 +61,11 @@ class CameraManager:
             time.sleep(1)
 
             self.running = True
+
+            print(
+                f"[CAMERA] Started "
+                f"{CAMERA_WIDTH}x{CAMERA_HEIGHT}"
+            )
 
             return True
 
@@ -71,13 +80,18 @@ class CameraManager:
             return False
 
 
-    # ========================================================
+    # ============================================================
     # CAPTURE
-    # ========================================================
+    # ============================================================
 
     def capture(self):
 
-        if not self.running or self.camera is None:
+        if (
+            not self.running
+            or
+            self.camera is None
+        ):
+
             return None
 
         try:
@@ -100,33 +114,45 @@ class CameraManager:
             return None
 
 
-    # ========================================================
+    # ============================================================
     # LATEST FRAME
-    # ========================================================
+    # ============================================================
 
     def get_latest_frame(self):
 
         with self.lock:
-            return self.latest_frame
+
+            if self.latest_frame is None:
+                return None
+
+            return self.latest_frame.copy()
 
 
-    # ========================================================
+    # ============================================================
     # STATUS
-    # ========================================================
+    # ============================================================
 
     def get_status(self):
 
         return {
-            "connected": self.running,
-            "width": CAMERA_WIDTH,
-            "height": CAMERA_HEIGHT,
-            "last_frame": self.last_frame_time
+
+            "connected":
+                self.running,
+
+            "width":
+                CAMERA_WIDTH,
+
+            "height":
+                CAMERA_HEIGHT,
+
+            "last_frame":
+                self.last_frame_time
         }
 
 
-    # ========================================================
+    # ============================================================
     # STOP
-    # ========================================================
+    # ============================================================
 
     def stop(self):
 
@@ -135,7 +161,9 @@ class CameraManager:
         if self.camera:
 
             try:
+
                 self.camera.stop()
+
             except Exception:
                 pass
 
