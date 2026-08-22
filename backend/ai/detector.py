@@ -1,7 +1,6 @@
 """
 MotoSense AI
-YOLO Object Detection
-
+Integrated YOLO11n Object Detection
 Raspberry Pi 4B + Camera Module 3
 """
 
@@ -33,36 +32,26 @@ class YOLODetector:
     def __init__(self, camera):
 
         self.camera = camera
-
         self.model = None
 
         self.running = False
-
         self.thread = None
-
         self.lock = threading.Lock()
+
+        self.latest_frame = None
 
         self.state = {
             "running": False,
             "status": "STARTING",
             "danger_level": "GREEN",
-
             "object": None,
             "confidence": None,
-
             "box": None,
             "box_area_ratio": 0.0,
-
             "center_x": None,
             "center_y": None,
-
             "timestamp": None,
         }
-
-
-    # ========================================================
-    # START
-    # ========================================================
 
     def start(self):
 
@@ -83,9 +72,8 @@ class YOLODetector:
         )
 
         self.thread.start()
-    # ========================================================
-    # DETECTION LOOP
-    # ========================================================
+
+        print("[YOLO] Detection started.")
 
     def _loop(self):
 
@@ -94,11 +82,8 @@ class YOLODetector:
             frame = self.camera.capture()
 
             if frame is None:
-
-                time.sleep(0.2)
-
+                time.sleep(0.05)
                 continue
-
 
             try:
 
@@ -111,11 +96,6 @@ class YOLODetector:
 
                 best = None
 
-
-                # ------------------------------------------------
-                # FIND MOST IMPORTANT DETECTION
-                # ------------------------------------------------
-
                 for result in results:
 
                     if result.boxes is None:
@@ -123,40 +103,22 @@ class YOLODetector:
 
                     for box in result.boxes:
 
-                        confidence = float(
-                            box.conf[0]
-                        )
-                        class_id = int(
-                            box.cls[0]
-                        )
+                        confidence = float(box.conf[0])
+                        class_id = int(box.cls[0])
 
-                        name = self.model.names[
-                            class_id
-                        ]
+                        name = self.model.names[class_id]
 
                         if name not in DANGEROUS_OBJECTS:
                             continue
 
-                        coordinates = (
-                            box.xyxy[0]
-                            .tolist()
+                        x1, y1, x2, y2 = (
+                            box.xyxy[0].tolist()
                         )
 
-                        x1, y1, x2, y2 = coordinates
+                        frame_height, frame_width = frame.shape[:2]
 
-                        width = max(
-                            0,
-                            x2 - x1
-                        )
-
-                        height = max(
-                            0,
-                            y2 - y1
-                        )
-
-                        frame_height, frame_width = (
-                            frame.shape[:2]
-                        )
+                        width = max(0, x2 - x1)
+                        height = max(0, y2 - y1)
 
                         area_ratio = (
                             width * height
@@ -172,13 +134,9 @@ class YOLODetector:
                             (y1 + y2) / 2
                         ) / frame_height
 
-
                         candidate = {
                             "object": name,
-                            "confidence": round(
-                                confidence,
-                                3
-                            ),
+                            "confidence": round(confidence, 3),
                             "box": [
                                 round(x1),
                                 round(y1),
@@ -199,20 +157,14 @@ class YOLODetector:
                             )
                         }
 
-
                         if (
                             best is None
-                            or
-                            confidence >
+                            or confidence >
                             best["confidence"]
                         ):
-
                             best = candidate
 
-
-                # ------------------------------------------------
-                # DETERMINE DANGER
-                # ------------------------------------------------
+                annotated = results[0].plot()
 
                 if best is None:
 
@@ -220,30 +172,18 @@ class YOLODetector:
                         "running": True,
                         "status": "CLEAR",
                         "danger_level": "GREEN",
-
                         "object": None,
                         "confidence": None,
-
                         "box": None,
                         "box_area_ratio": 0.0,
-
                         "center_x": None,
                         "center_y": None,
-
                         "timestamp": time.time()
                     }
 
                 else:
 
-                    danger_level = (
-                        self._calculate_danger(
-                            best
-                        )
-                    )
-
-                    status = (
-                        "OBJECT_DETECTED"
-                    )
+                    danger_level = self._calculate_danger(best)
 
                     if danger_level == "RED":
                         status = "FORWARD_COLLISION"
@@ -251,36 +191,72 @@ class YOLODetector:
                     elif danger_level == "YELLOW":
                         status = "FORWARD_WARNING"
 
+                    else:
+                        status = "OBJECT_DETECTED"
 
                     new_state = {
                         "running": True,
                         "status": status,
                         "danger_level": danger_level,
-
                         "object": best["object"],
                         "confidence": best["confidence"],
-
                         "box": best["box"],
-                        "box_area_ratio": best[
-                            "box_area_ratio"
-                        ],
-
+                        "box_area_ratio": best["box_area_ratio"],
                         "center_x": best["center_x"],
                         "center_y": best["center_y"],
-
                         "timestamp": time.time()
                     }
 
+                # ------------------------------------------------
+                # DRAW MOTOSENSE INFORMATION ON VIDEO
+                # ------------------------------------------------
+
+                import cv2
+
+                state_text = (
+                    f"{new_state['status']} | "
+                    f"DANGER: {new_state['danger_level']}"
+                )
+
+                cv2.putText(
+                    annotated,
+                    state_text,
+                    (20, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.9,
+                    (0, 0, 255)
+                    if new_state["danger_level"] == "RED"
+                    else (0, 255, 255)
+                    if new_state["danger_level"] == "YELLOW"
+                    else (0, 255, 0),
+                    2
+                )
+
+                if new_state["object"]:
+
+                    object_text = (
+                        f"OBJECT: {new_state['object']}  "
+                        f"CONF: {new_state['confidence']}"
+                    )
+
+                    cv2.putText(
+                        annotated,
+                        object_text,
+                        (20, 80),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (255, 255, 255),
+                        2
+                    )
 
                 with self.lock:
-                    self.state = new_state
 
+                    self.state = new_state
+                    self.latest_frame = annotated.copy()
 
             except Exception as error:
 
-                print(
-                    f"[YOLO] Error: {error}"
-                )
+                print(f"[YOLO] Error: {error}")
 
                 with self.lock:
 
@@ -293,63 +269,43 @@ class YOLODetector:
 
                 time.sleep(1)
 
-
-    # ========================================================
-    # DANGER CALCULATION
-    # ========================================================
-
     def _calculate_danger(self, detection):
 
-        area = detection[
-            "box_area_ratio"
-        ]
+        area = detection["box_area_ratio"]
 
-        center_x = detection[
-            "center_x"
-        ]
+        center_x = detection["center_x"]
+        center_y = detection["center_y"]
 
-        center_y = detection[
-            "center_y"
-        ]
-
-
-        # Object must generally be in front
         central = (
             0.20 <= center_x <= 0.80
             and
             center_y >= 0.20
         )
 
-
         if not central:
             return "GREEN"
 
-
-        # Large object = very close
         if area >= 0.25:
             return "RED"
 
-
-        # Medium object
         if area >= 0.08:
             return "YELLOW"
 
-
         return "GREEN"
-
-
-    # ========================================================
-    # STATE
-    # ========================================================
 
     def get_state(self):
 
         with self.lock:
             return self.state.copy()
 
-    # ========================================================
-    # STOP
-    # ========================================================
+    def get_frame(self):
+
+        with self.lock:
+
+            if self.latest_frame is None:
+                return None
+
+            return self.latest_frame.copy()
 
     def stop(self):
 
@@ -357,6 +313,6 @@ class YOLODetector:
 
         if self.thread:
 
-            self.thread.join(
-                timeout=2
-   )
+            self.thread.join(timeout=2)
+
+        print("[YOLO] Detection stopped.")
