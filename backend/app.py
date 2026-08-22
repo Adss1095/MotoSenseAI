@@ -1,6 +1,6 @@
 """
 MotoSense AI
-FINAL FRONT INTEGRATION
+FINAL FRONT INTEGRATION + WEATHER
 
 Camera
 YOLO11n
@@ -8,6 +8,17 @@ Object Tracking
 Light-blue Forward Corridor
 Front HC-SR04
 Front Red LED
+Weather Detection
+Raspberry Pi Device Temperature
+Live Video
+
+IMPORTANT
+--------
+Weather does NOT:
+- control SOS
+- control collision LED
+- modify YOLO
+- modify ultrasonic danger logic
 
 The front ultrasonic/YOLO system does NOT trigger SOS.
 """
@@ -46,6 +57,8 @@ from ai.detector import YOLODetector
 
 from sensors.pi_ultrasonic import FrontUltrasonic
 
+from weather import WeatherDetector
+
 
 # ============================================================
 # FLASK
@@ -69,6 +82,10 @@ yolo = YOLODetector(
 front_sensor = FrontUltrasonic(
     FRONT_TRIG_PIN,
     FRONT_ECHO_PIN
+)
+
+weather = WeatherDetector(
+    camera
 )
 
 
@@ -138,10 +155,10 @@ def get_front_safety():
     # --------------------------------------------------------
     # ULTRASONIC DANGER
     #
-    # Existing config:
-    # BASE_YELLOW_DISTANCE
+    # Uses existing BASE_YELLOW_DISTANCE.
     #
-    # RED is hard-coded at 0.50 m.
+    # RED = 0.50 m
+    # YELLOW = configured base yellow distance
     # --------------------------------------------------------
 
     ultrasonic_danger = "GREEN"
@@ -217,9 +234,11 @@ def get_front_safety():
 
 
     # --------------------------------------------------------
-    # FRONT LED
+    # FRONT RED LED
     #
-    # RED ONLY
+    # ONLY FRONT COLLISION FUSION
+    #
+    # Weather NEVER controls this LED.
     # --------------------------------------------------------
 
     led_on = (
@@ -238,6 +257,19 @@ def get_front_safety():
 
 
     # --------------------------------------------------------
+    # WEATHER
+    #
+    # Read only.
+    #
+    # Weather does not modify the front safety decision.
+    # --------------------------------------------------------
+
+    weather_state = (
+        weather.get_state()
+    )
+
+
+    # --------------------------------------------------------
     # RESULT
     # --------------------------------------------------------
 
@@ -248,6 +280,11 @@ def get_front_safety():
 
         "danger_level":
             danger,
+
+
+        # ----------------------------------------------------
+        # YOLO
+        # ----------------------------------------------------
 
         "object":
             yolo_state.get(
@@ -297,6 +334,11 @@ def get_front_safety():
                 []
             ),
 
+
+        # ----------------------------------------------------
+        # ULTRASONIC
+        # ----------------------------------------------------
+
         "distance_m":
             distance,
 
@@ -306,12 +348,32 @@ def get_front_safety():
         "ultrasonic_danger":
             ultrasonic_danger,
 
+
+        # ----------------------------------------------------
+        # LED
+        # ----------------------------------------------------
+
         "led":
             led_on,
 
-        # Front detection does NOT trigger SOS.
+
+        # ----------------------------------------------------
+        # SOS
+        #
+        # Explicitly FALSE.
+        # ----------------------------------------------------
+
         "sos":
             False,
+
+
+        # ----------------------------------------------------
+        # WEATHER
+        # ----------------------------------------------------
+
+        "weather":
+            weather_state,
+
 
         "timestamp":
             time.time()
@@ -326,203 +388,377 @@ def generate_frames():
 
     while system_running:
 
-        frame = (
-            yolo.get_frame()
-        )
+        try:
+
+            # ------------------------------------------------
+            # IMPORTANT:
+            #
+            # YOLO's processed frame is used here.
+            #
+            # This preserves:
+            # - object boxes
+            # - object tracking
+            # - light-blue forward corridor
+            # - YOLO annotations
+            # ------------------------------------------------
+
+            frame = (
+                yolo.get_frame()
+            )
 
 
-        if frame is None:
+            if frame is None:
+
+                time.sleep(
+                    0.03
+                )
+
+                continue
+
+
+            frame = frame.copy()
+
+
+            # ------------------------------------------------
+            # FRONT FUSION
+            # ------------------------------------------------
+
+            safety = (
+                get_front_safety()
+            )
+
+
+            # ------------------------------------------------
+            # ULTRASONIC TEXT
+            # ------------------------------------------------
+
+            distance = (
+                safety["distance_m"]
+            )
+
+
+            if distance is None:
+
+                ultrasonic_text = (
+                    "ULTRASONIC: --"
+                )
+
+            else:
+
+                ultrasonic_text = (
+                    f"ULTRASONIC: "
+                    f"{distance:.2f} m"
+                )
+
+
+            cv2.putText(
+
+                frame,
+
+                ultrasonic_text,
+
+                (15, 130),
+
+                cv2.FONT_HERSHEY_SIMPLEX,
+
+                0.70,
+
+                (255, 255, 255),
+
+                2,
+
+                cv2.LINE_AA
+            )
+
+
+            # ------------------------------------------------
+            # FUSED DANGER
+            # ------------------------------------------------
+
+            danger = (
+                safety["danger_level"]
+            )
+
+
+            if danger == "RED":
+
+                danger_color = (
+                    0,
+                    0,
+                    255
+                )
+
+            elif danger == "YELLOW":
+
+                danger_color = (
+                    0,
+                    255,
+                    255
+                )
+
+            else:
+
+                danger_color = (
+                    0,
+                    255,
+                    0
+                )
+
+
+            cv2.putText(
+
+                frame,
+
+                f"FUSED DANGER: {danger}",
+
+                (15, 165),
+
+                cv2.FONT_HERSHEY_SIMPLEX,
+
+                0.70,
+
+                danger_color,
+
+                2,
+
+                cv2.LINE_AA
+            )
+
+
+            # ------------------------------------------------
+            # LED
+            # ------------------------------------------------
+
+            led_text = (
+
+                "LED: ON"
+
+                if safety["led"]
+
+                else
+
+                "LED: OFF"
+            )
+
+
+            cv2.putText(
+
+                frame,
+
+                led_text,
+
+                (15, 200),
+
+                cv2.FONT_HERSHEY_SIMPLEX,
+
+                0.70,
+
+                danger_color,
+
+                2,
+
+                cv2.LINE_AA
+            )
+
+
+            # ------------------------------------------------
+            # WEATHER INFORMATION
+            #
+            # Displayed only.
+            # Does not affect collision logic.
+            # ------------------------------------------------
+
+            weather_state = (
+                safety["weather"]
+            )
+
+
+            condition = (
+                weather_state.get(
+                    "condition",
+                    "STARTING"
+                )
+            )
+
+
+            temperature = (
+                weather_state.get(
+                    "device_temperature_c"
+                )
+            )
+
+
+            risk = (
+                weather_state.get(
+                    "risk",
+                    "SAFE"
+                )
+            )
+
+
+            # ------------------------------------------------
+            # WEATHER TEXT
+            # ------------------------------------------------
+
+            cv2.putText(
+
+                frame,
+
+                f"WEATHER: {condition}",
+
+                (15, 235),
+
+                cv2.FONT_HERSHEY_SIMPLEX,
+
+                0.65,
+
+                (220, 220, 220),
+
+                2,
+
+                cv2.LINE_AA
+            )
+
+
+            # ------------------------------------------------
+            # DEVICE TEMPERATURE
+            # ------------------------------------------------
+
+            if temperature is None:
+
+                temp_text = (
+                    "PI TEMP: --"
+                )
+
+            else:
+
+                temp_text = (
+                    f"PI TEMP: "
+                    f"{temperature:.1f} C"
+                )
+
+
+            cv2.putText(
+
+                frame,
+
+                temp_text,
+
+                (15, 270),
+
+                cv2.FONT_HERSHEY_SIMPLEX,
+
+                0.65,
+
+                (220, 220, 220),
+
+                2,
+
+                cv2.LINE_AA
+            )
+
+
+            # ------------------------------------------------
+            # WEATHER RISK
+            # ------------------------------------------------
+
+            if risk == "DANGEROUS":
+
+                weather_color = (
+                    0,
+                    0,
+                    255
+                )
+
+            elif risk == "CAUTION":
+
+                weather_color = (
+                    0,
+                    255,
+                    255
+                )
+
+            else:
+
+                weather_color = (
+                    0,
+                    255,
+                    0
+                )
+
+
+            cv2.putText(
+
+                frame,
+
+                f"WEATHER RISK: {risk}",
+
+                (15, 305),
+
+                cv2.FONT_HERSHEY_SIMPLEX,
+
+                0.65,
+
+                weather_color,
+
+                2,
+
+                cv2.LINE_AA
+            )
+
+
+            # ------------------------------------------------
+            # JPEG
+            # ------------------------------------------------
+
+            success, buffer = (
+                cv2.imencode(
+                    ".jpg",
+                    frame,
+                    [
+                        cv2.IMWRITE_JPEG_QUALITY,
+                        85
+                    ]
+                )
+            )
+
+
+            if not success:
+
+                continue
+
+
+            frame_bytes = (
+                buffer.tobytes()
+            )
+
+
+            yield (
+
+                b"--frame\r\n"
+
+                b"Content-Type: image/jpeg\r\n\r\n"
+
+                + frame_bytes
+
+                + b"\r\n"
+            )
+
 
             time.sleep(
                 0.03
             )
 
-            continue
 
+        except Exception as error:
 
-        # ----------------------------------------------------
-        # FRONT FUSION
-        # ----------------------------------------------------
-
-        safety = (
-            get_front_safety()
-        )
-
-
-        # ----------------------------------------------------
-        # ULTRASONIC TEXT
-        # ----------------------------------------------------
-
-        distance = (
-            safety["distance_m"]
-        )
-
-
-        if distance is None:
-
-            ultrasonic_text = (
-                "ULTRASONIC: --"
+            print(
+                f"[VIDEO] Error: {error}"
             )
 
-        else:
-
-            ultrasonic_text = (
-                f"ULTRASONIC: "
-                f"{distance:.2f} m"
+            time.sleep(
+                0.1
             )
-
-
-        cv2.putText(
-
-            frame,
-
-            ultrasonic_text,
-
-            (15, 130),
-
-            cv2.FONT_HERSHEY_SIMPLEX,
-
-            0.70,
-
-            (255, 255, 255),
-
-            2,
-
-            cv2.LINE_AA
-        )
-
-
-        # ----------------------------------------------------
-        # FUSED DANGER
-        # ----------------------------------------------------
-
-        danger = (
-            safety["danger_level"]
-        )
-
-
-        if danger == "RED":
-
-            danger_color = (
-                0,
-                0,
-                255
-            )
-
-        elif danger == "YELLOW":
-
-            danger_color = (
-                0,
-                255,
-                255
-            )
-
-        else:
-
-            danger_color = (
-                0,
-                255,
-                0
-            )
-
-
-        cv2.putText(
-
-            frame,
-
-            f"FUSED DANGER: {danger}",
-
-            (15, 165),
-
-            cv2.FONT_HERSHEY_SIMPLEX,
-
-            0.70,
-
-            danger_color,
-
-            2,
-
-            cv2.LINE_AA
-        )
-
-
-        # ----------------------------------------------------
-        # LED
-        # ----------------------------------------------------
-
-        led_text = (
-
-            "LED: ON"
-
-            if safety["led"]
-
-            else
-
-            "LED: OFF"
-        )
-
-
-        cv2.putText(
-
-            frame,
-
-            led_text,
-
-            (15, 200),
-
-            cv2.FONT_HERSHEY_SIMPLEX,
-
-            0.70,
-
-            danger_color,
-
-            2,
-
-            cv2.LINE_AA
-        )
-
-
-        # ----------------------------------------------------
-        # JPEG
-        # ----------------------------------------------------
-
-        success, buffer = (
-            cv2.imencode(
-                ".jpg",
-                frame,
-                [
-                    cv2.IMWRITE_JPEG_QUALITY,
-                    85
-                ]
-            )
-        )
-
-
-        if not success:
-
-            continue
-
-
-        frame_bytes = (
-            buffer.tobytes()
-        )
-
-
-        yield (
-
-            b"--frame\r\n"
-
-            b"Content-Type: image/jpeg\r\n\r\n"
-
-            + frame_bytes
-
-            + b"\r\n"
-        )
-
-
-        time.sleep(
-            0.03
-        )
 
 
 # ============================================================
@@ -551,6 +787,9 @@ def home():
 
         "ultrasonic":
             front_sensor.get_state(),
+
+        "weather":
+            weather.get_state(),
 
         "front":
             get_front_safety(),
@@ -594,6 +833,50 @@ def front_status():
 
 
 # ============================================================
+# COMPLETE SYSTEM STATUS
+# ============================================================
+
+@app.route("/api/status")
+def complete_status():
+
+    return jsonify({
+
+        "project":
+            "MotoSense AI",
+
+        "status":
+            "RUNNING",
+
+        "system":
+            "FRONT INTEGRATED",
+
+        "camera":
+            camera.get_status(),
+
+        "yolo":
+            yolo.get_state(),
+
+        "ultrasonic":
+            front_sensor.get_state(),
+
+        "weather":
+            weather.get_state(),
+
+        "front":
+            get_front_safety(),
+
+        "video":
+            "/video",
+
+        "sos":
+            False,
+
+        "timestamp":
+            time.time()
+    })
+
+
+# ============================================================
 # YOLO STATUS
 # ============================================================
 
@@ -630,6 +913,18 @@ def ultrasonic_status():
 
 
 # ============================================================
+# WEATHER STATUS
+# ============================================================
+
+@app.route("/api/weather")
+def weather_status():
+
+    return jsonify(
+        weather.get_state()
+    )
+
+
+# ============================================================
 # START SYSTEM
 # ============================================================
 
@@ -641,7 +936,7 @@ def start_system():
     print("")
     print("=" * 60)
     print("              MOTOSENSE AI")
-    print("         FRONT INTEGRATED SYSTEM")
+    print("      FRONT + WEATHER INTEGRATED")
     print("=" * 60)
 
 
@@ -702,6 +997,27 @@ def start_system():
     )
 
 
+    # --------------------------------------------------------
+    # WEATHER
+    # --------------------------------------------------------
+
+    print(
+        "[SYSTEM] Starting weather detector..."
+    )
+
+
+    weather.start()
+
+
+    print(
+        "[OK] Weather detector started"
+    )
+
+
+    # --------------------------------------------------------
+    # SYSTEM
+    # --------------------------------------------------------
+
     system_running = True
 
 
@@ -709,15 +1025,26 @@ def start_system():
     print("=" * 60)
     print("          FRONT SYSTEM READY")
     print("=" * 60)
+
     print(
         f"Server : http://{HOST}:{PORT}"
     )
+
     print(
-        f"Video  : http://<RASPBERRY-IP>:{PORT}/video"
+        f"Video  : "
+        f"http://<RASPBERRY-IP>:{PORT}/video"
     )
+
     print(
-        f"Status : http://<RASPBERRY-IP>:{PORT}/api/front"
+        f"Front  : "
+        f"http://<RASPBERRY-IP>:{PORT}/api/front"
     )
+
+    print(
+        f"Weather: "
+        f"http://<RASPBERRY-IP>:{PORT}/api/weather"
+    )
+
     print("=" * 60)
 
 
@@ -741,6 +1068,22 @@ def shutdown():
     system_running = False
 
 
+    # --------------------------------------------------------
+    # WEATHER
+    # --------------------------------------------------------
+
+    try:
+
+        weather.stop()
+
+    except Exception:
+        pass
+
+
+    # --------------------------------------------------------
+    # YOLO
+    # --------------------------------------------------------
+
     try:
 
         yolo.stop()
@@ -748,6 +1091,10 @@ def shutdown():
     except Exception:
         pass
 
+
+    # --------------------------------------------------------
+    # CAMERA
+    # --------------------------------------------------------
 
     try:
 
@@ -757,6 +1104,10 @@ def shutdown():
         pass
 
 
+    # --------------------------------------------------------
+    # ULTRASONIC
+    # --------------------------------------------------------
+
     try:
 
         front_sensor.stop()
@@ -764,6 +1115,10 @@ def shutdown():
     except Exception:
         pass
 
+
+    # --------------------------------------------------------
+    # LED
+    # --------------------------------------------------------
 
     try:
 
@@ -782,6 +1137,10 @@ def shutdown():
         "[MOTOSENSE] Shutdown complete."
     )
 
+
+# ============================================================
+# EXIT HANDLER
+# ============================================================
 
 atexit.register(
     shutdown
