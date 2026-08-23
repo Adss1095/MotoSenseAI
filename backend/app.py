@@ -21,9 +21,79 @@ The front ultrasonic/YOLO system does NOT trigger SOS.
 import atexit
 import time
 import threading
+import subprocess
+import socket
 
 import cv2
 import RPi.GPIO as GPIO
+
+# ============================================================
+# PORT RECOVERY
+# ============================================================
+
+def free_port(port):
+    """
+    Automatically clear a stale process occupying the
+    MotoSense AI backend port.
+    """
+
+    try:
+
+        # Check whether the port is actually occupied
+        with socket.socket(
+            socket.AF_INET,
+            socket.SOCK_STREAM
+        ) as sock:
+
+            sock.settimeout(0.5)
+
+            if sock.connect_ex(
+                ("127.0.0.1", port)
+            ) != 0:
+
+                return
+
+        print(
+            f"[PORT] Port {port} is occupied."
+        )
+
+        print(
+            f"[PORT] Clearing existing process..."
+        )
+
+        # Kill process using this TCP port
+        result = subprocess.run(
+            [
+                "fuser",
+                "-k",
+                f"{port}/tcp"
+            ],
+            capture_output=True,
+            text=True
+        )
+
+        if result.returncode == 0:
+
+            print(
+                f"[PORT] Port {port} released."
+            )
+
+        else:
+
+            print(
+                f"[PORT] Could not automatically "
+                f"release port {port}."
+            )
+
+        # Give Linux time to release the socket
+        time.sleep(1)
+
+    except Exception as e:
+
+        print(
+            f"[PORT] Recovery check failed: {e}"
+        )
+
 
 from flask import (
     Flask,
@@ -1420,6 +1490,9 @@ atexit.register(
 # ============================================================
 
 if __name__ == "__main__":
+
+    # Automatically recover from stale port usage
+    free_port(PORT)
 
     if start_system():
 
