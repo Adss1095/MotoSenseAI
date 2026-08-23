@@ -81,7 +81,7 @@ front_sensor = FrontUltrasonic(
 )
 
 arduino = ArduinoManager(
-    "/dev/ttyUSB0"
+    "/dev/ttyUSB0",
     115200
 )
 
