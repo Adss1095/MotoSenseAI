@@ -55,6 +55,7 @@ from sensors.pi_ultrasonic import FrontUltrasonic
 from sensors.arduino import ArduinoManager
 
 
+
 # ============================================================
 # FLASK
 # ============================================================
@@ -80,7 +81,7 @@ front_sensor = FrontUltrasonic(
 )
 
 arduino = ArduinoManager(
-    "/dev/ttyACM0",
+    "/dev/ttyUSB0"
     115200
 )
 
