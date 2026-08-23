@@ -1,7 +1,10 @@
 import React, {
+  useEffect,
   useMemo,
   useState,
 } from "react";
+
+import * as Location from "expo-location";
 
 import {
   Image,
@@ -24,15 +27,24 @@ import {
 
 import DashboardMap from "@/components/DashboardMap";
 
+import {
+  getFrontState,
+  getWeatherState,
+  getAmbientWeather,
+  checkBackend,
+} from "@/services/api";
+
 type SensorStatus =
   | "WAITING"
   | "SAFE"
   | "WARNING"
   | "DANGER";
 
+
 const getStatus = (
   distance: number | null
 ): SensorStatus => {
+
   if (distance === null) {
     return "WAITING";
   }
@@ -48,11 +60,14 @@ const getStatus = (
   return "SAFE";
 };
 
+
 const getStatusColor = (
   status: SensorStatus,
   dark: boolean
 ) => {
+
   switch (status) {
+
     case "DANGER":
       return "#FF453A";
 
@@ -69,6 +84,7 @@ const getStatusColor = (
   }
 };
 
+
 /* =========================================================
    FRONT RADAR
 ========================================================= */
@@ -80,6 +96,7 @@ function FrontRadar({
   dark: boolean;
   compact?: boolean;
 }) {
+
   const blue = dark
     ? "#229BFF"
     : "#0878D1";
@@ -88,14 +105,21 @@ function FrontRadar({
     <View
       style={[
         styles.radarContainer,
-        compact && styles.compactRadarContainer,
+        compact &&
+          styles.compactRadarContainer,
       ]}
     >
+
       <Svg
         width="100%"
-        height={compact ? 58 : 80}
+        height={
+          compact
+            ? 58
+            : 80
+        }
         viewBox="0 0 280 150"
       >
+
         <Path
           d="M25 120 Q140 5 255 120"
           fill="none"
@@ -119,20 +143,25 @@ function FrontRadar({
           strokeWidth="2"
           opacity={0.6}
         />
+
       </Svg>
 
       <View
         style={[
           styles.radarCenterLine,
-          compact && styles.compactRadarCenterLine,
+          compact &&
+            styles.compactRadarCenterLine,
           {
-            backgroundColor: `${blue}25`,
+            backgroundColor:
+              `${blue}25`,
           },
         ]}
       />
+
     </View>
   );
 }
+
 
 /* =========================================================
    REAR RADAR
@@ -145,20 +174,28 @@ function RearRadar({
   dark: boolean;
   compact?: boolean;
 }) {
+
   const orange = "#FF9F0A";
 
   return (
     <View
       style={[
         styles.radarContainer,
-        compact && styles.compactRadarContainer,
+        compact &&
+          styles.compactRadarContainer,
       ]}
     >
+
       <Svg
         width="100%"
-        height={compact ? 58 : 80}
+        height={
+          compact
+            ? 58
+            : 80
+        }
         viewBox="0 0 280 150"
       >
+
         <Path
           d="M25 30 Q140 145 255 30"
           fill="none"
@@ -182,20 +219,25 @@ function RearRadar({
           strokeWidth="2"
           opacity={0.6}
         />
+
       </Svg>
 
       <View
         style={[
           styles.radarCenterLine,
-          compact && styles.compactRadarCenterLine,
+          compact &&
+            styles.compactRadarCenterLine,
           {
-            backgroundColor: `${orange}20`,
+            backgroundColor:
+              `${orange}20`,
           },
         ]}
       />
+
     </View>
   );
 }
+
 
 /* =========================================================
    SENSOR CARD
@@ -214,46 +256,59 @@ function SensorCard({
   dark: boolean;
   compact?: boolean;
 }) {
-  const color = getStatusColor(
-    status,
-    dark
-  );
+
+  const color =
+    getStatusColor(
+      status,
+      dark
+    );
 
   return (
     <View
       style={[
         styles.sensorCard,
-        compact && styles.compactSensorCard,
+        compact &&
+          styles.compactSensorCard,
         {
-          backgroundColor: dark
-            ? "#07121F"
-            : "#F7FAFE",
+          backgroundColor:
+            dark
+              ? "#07121F"
+              : "#F7FAFE",
 
-          borderColor: `${color}90`,
+          borderColor:
+            `${color}90`,
 
-          shadowColor: color,
+          shadowColor:
+            color,
         },
       ]}
     >
+
       <Text
         style={[
           styles.sensorLabel,
-          compact && styles.compactSensorLabel,
+          compact &&
+            styles.compactSensorLabel,
           {
-            color: dark
-              ? "#C4D1E1"
-              : "#24364D",
+            color:
+              dark
+                ? "#C4D1E1"
+                : "#24364D",
           },
         ]}
       >
         {label}
       </Text>
 
-      <View style={styles.distanceRow}>
+      <View
+        style={styles.distanceRow}
+      >
+
         <Text
           style={[
             styles.distanceText,
-            compact && styles.compactDistanceText,
+            compact &&
+              styles.compactDistanceText,
             {
               color,
             },
@@ -267,34 +322,47 @@ function SensorCard({
         <Text
           style={[
             styles.unitText,
-            compact && styles.compactUnitText,
+            compact &&
+              styles.compactUnitText,
             {
-              color: dark
-                ? "#A9BBD0"
-                : "#52677F",
+              color:
+                dark
+                  ? "#A9BBD0"
+                  : "#52677F",
             },
           ]}
         >
           m
         </Text>
+
       </View>
 
       <View
         style={[
           styles.statusBadge,
-          compact && styles.compactStatusBadge,
+          compact &&
+            styles.compactStatusBadge,
           {
-            backgroundColor: `${color}18`,
+            backgroundColor:
+              `${color}18`,
           },
         ]}
       >
+
         <View
           style={[
             styles.statusDot,
             {
-              backgroundColor: color,
-              position: "absolute",
-              right: compact ? 13 : 18,
+              backgroundColor:
+                color,
+
+              position:
+                "absolute",
+
+              right:
+                compact
+                  ? 13
+                  : 18,
             },
           ]}
         />
@@ -302,7 +370,8 @@ function SensorCard({
         <Text
           style={[
             styles.statusText,
-            compact && styles.compactStatusText,
+            compact &&
+              styles.compactStatusText,
             {
               color,
             },
@@ -310,10 +379,13 @@ function SensorCard({
         >
           {status}
         </Text>
+
       </View>
+
     </View>
   );
 }
+
 
 /* =========================================================
    LIVE ALERT CARD
@@ -326,53 +398,75 @@ function AlertCard({
   dark,
   compact = false,
 }: {
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  icon:
+    keyof typeof MaterialCommunityIcons.glyphMap;
+
   label: string;
+
   color: string;
+
   dark: boolean;
+
   compact?: boolean;
 }) {
+
   return (
     <View
       style={[
         styles.alertCard,
-        compact && styles.compactAlertCard,
+        compact &&
+          styles.compactAlertCard,
         {
-          backgroundColor: dark
-            ? "#07121F"
-            : "#FFFFFF",
+          backgroundColor:
+            dark
+              ? "#07121F"
+              : "#FFFFFF",
 
-          borderColor: dark
-            ? "#18324B"
-            : "#D9E3EF",
+          borderColor:
+            dark
+              ? "#18324B"
+              : "#D9E3EF",
         },
       ]}
     >
+
       <View
         style={[
           styles.alertIconCircle,
-          compact && styles.compactAlertIconCircle,
+          compact &&
+            styles.compactAlertIconCircle,
           {
-            backgroundColor: `${color}12`,
-            borderColor: `${color}55`,
+            backgroundColor:
+              `${color}12`,
+
+            borderColor:
+              `${color}55`,
           },
         ]}
       >
+
         <MaterialCommunityIcons
           name={icon}
-          size={compact ? 19 : 22}
+          size={
+            compact
+              ? 19
+              : 22
+          }
           color={color}
         />
+
       </View>
 
       <Text
         style={[
           styles.alertLabel,
-          compact && styles.compactAlertLabel,
+          compact &&
+            styles.compactAlertLabel,
           {
-            color: dark
-              ? "#E5EDF7"
-              : "#24364D",
+            color:
+              dark
+                ? "#E5EDF7"
+                : "#24364D",
           },
         ]}
       >
@@ -383,13 +477,16 @@ function AlertCard({
         style={[
           styles.alertIndicator,
           {
-            backgroundColor: color,
+            backgroundColor:
+              color,
           },
         ]}
       />
+
     </View>
   );
 }
+
 
 /* =========================================================
    RIGHT STATUS CARD
@@ -403,55 +500,81 @@ function StatusCard({
   dark,
   compact = false,
 }: {
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  icon:
+    keyof typeof MaterialCommunityIcons.glyphMap;
+
   title: string;
+
   value: string;
+
   color: string;
+
   dark: boolean;
+
   compact?: boolean;
 }) {
+
   return (
     <View
       style={[
         styles.statusCard,
-        compact && styles.compactStatusCard,
+        compact &&
+          styles.compactStatusCard,
         {
-          backgroundColor: dark
-            ? "#07121F"
-            : "#F7FAFE",
+          backgroundColor:
+            dark
+              ? "#07121F"
+              : "#F7FAFE",
 
-          borderColor: dark
-            ? "#18324B"
-            : "#D9E3EF",
+          borderColor:
+            dark
+              ? "#18324B"
+              : "#D9E3EF",
         },
       ]}
     >
+
       <View
         style={[
           styles.statusIcon,
-          compact && styles.compactStatusIcon,
+          compact &&
+            styles.compactStatusIcon,
           {
-            backgroundColor: `${color}12`,
-            borderColor: `${color}55`,
+            backgroundColor:
+              `${color}12`,
+
+            borderColor:
+              `${color}55`,
           },
         ]}
       >
+
         <MaterialCommunityIcons
           name={icon}
-          size={compact ? 25 : 30}
+          size={
+            compact
+              ? 25
+              : 30
+          }
           color={color}
         />
+
       </View>
 
-      <View style={styles.statusTextBlock}>
+      <View
+        style={styles.statusTextBlock}
+      >
+
         <Text
           style={[
             styles.statusTitle,
-            compact && styles.compactStatusTitle,
+            compact &&
+              styles.compactStatusTitle,
             {
-              color: dark
-                ? "#EAF2FC"
-                : "#203247",
+              color:
+                dark
+                  ? "#EAF2FC"
+                  : "#203247",
             },
           ]}
         >
@@ -461,113 +584,400 @@ function StatusCard({
         <Text
           style={[
             styles.statusValue,
-            compact && styles.compactStatusValue,
+            compact &&
+              styles.compactStatusValue,
             {
-              color: dark
-                ? "#8FA6BE"
-                : "#60758D",
+              color:
+                dark
+                  ? "#8FA6BE"
+                  : "#60758D",
             },
           ]}
           numberOfLines={2}
         >
           {value}
         </Text>
+
       </View>
 
       <View
         style={[
           styles.statusDot,
           {
-            backgroundColor: color,
+            backgroundColor:
+              color,
           },
         ]}
       />
+
     </View>
   );
 }
+
 
 /* =========================================================
    MAIN DASHBOARD
 ========================================================= */
 
 export default function Dashboard() {
+
   const {
     width,
     height,
   } = useWindowDimensions();
 
+
   const isDesktop =
     width >= 850;
 
-  /*
-   * Short laptop / smaller desktop viewport.
-   *
-   * This is important because a 1366x768 laptop
-   * has much less usable vertical space than
-   * a large external monitor.
-   */
+
   const isCompactDesktop =
-    isDesktop && height < 850;
+    isDesktop &&
+    height < 850;
+
 
   const [darkMode, setDarkMode] =
     useState(true);
+
+
+  /* =======================================================
+     NAVIGATION + CAMERA STATE
+  ======================================================= */
 
   const [
     showNavigation,
     setShowNavigation,
   ] = useState(false);
 
-  /*
-   * Temporary sensor values.
-   * Keep null until Arduino / Raspberry Pi
-   * values are connected.
-   */
-  const frontDistance:
-    | number
-    | null = null;
+
+  const [
+    showCamera,
+    setShowCamera,
+  ] = useState(false);
+
+
+  /* =======================================================
+     BACKEND DATA
+  ======================================================= */
+
+  const [
+    frontDistance,
+    setFrontDistance,
+  ] = useState<number | null>(
+    null
+  );
+
+  const [
+  ambientTemperature,
+  setAmbientTemperature,
+] = useState<number | null>(
+  null
+);
+
+const [
+  ambientWeatherCondition,
+  setAmbientWeatherCondition,
+] =
+  useState("Loading...");
+
+  const [
+    dangerLevel,
+    setDangerLevel,
+  ] = useState("GREEN");
+
+
+  const [
+    objectDetected,
+    setObjectDetected,
+  ] = useState<string | null>(
+    null
+  );
+
+
+  const [
+    weatherCondition,
+    setWeatherCondition,
+  ] = useState("Loading...");
+
+
+  const [
+    temperature,
+    setTemperature,
+  ] = useState<number | null>(
+    null
+  );
+
+
+  const [
+    backendConnected,
+    setBackendConnected,
+  ] = useState(false);
+
 
   const rearDistance:
-    | number
-    | null = null;
+    number | null = null;
+
+
+  useEffect(() => {
+
+    let mounted = true;
+
+
+    const loadData =
+      async () => {
+
+        try {
+
+          const front =
+            await getFrontState();
+
+
+          if (!mounted) {
+            return;
+          }
+
+
+          setBackendConnected(
+            true
+          );
+
+
+          setFrontDistance(
+            typeof front.distance_m ===
+              "number"
+              ? front.distance_m
+              : null
+          );
+
+
+          setDangerLevel(
+            front.danger_level ||
+            front.yolo_danger ||
+            "GREEN"
+          );
+
+
+          setObjectDetected(
+            front.object ||
+            null
+          );
+
+
+          if (front.weather) {
+
+            setWeatherCondition(
+              front.weather.condition ||
+              "Unknown"
+            );
+
+
+            setTemperature(
+              typeof
+                front.weather
+                  .device_temperature_c ===
+                "number"
+                ? front.weather
+                    .device_temperature_c
+                : null
+            );
+
+          }
+
+        } catch (error) {
+
+          console.log(
+            "[MotoSense] Backend error:",
+            error
+          );
+
+
+          if (mounted) {
+
+            setBackendConnected(
+              false
+            );
+
+          }
+
+        }
+
+      };
+
+
+    loadData();
+
+
+    const interval =
+      setInterval(
+        loadData,
+        1000
+      );
+
+
+    return () => {
+
+      mounted = false;
+
+      clearInterval(
+        interval
+      );
+
+    };
+
+  }, []);
+
+  useEffect(() => {
+  let mounted = true;
+
+  const loadAmbientWeather = async () => {
+    try {
+      const { status } =
+        await Location.requestForegroundPermissionsAsync();
+
+      if (status !== "granted") {
+        console.log(
+          "[MotoSense] Location permission denied"
+        );
+        return;
+      }
+
+      const location =
+        await Location.getCurrentPositionAsync({});
+
+      const {
+        latitude,
+        longitude,
+      } = location.coords;
+
+      const weather =
+        await getAmbientWeather(
+          latitude,
+          longitude
+        );
+
+      if (!mounted) {
+        return;
+      }
+
+      setAmbientTemperature(
+        weather.temperature
+      );
+
+      const code =
+        weather.weatherCode;
+
+      if (code === 0) {
+        setAmbientWeatherCondition(
+          "Clear Sky"
+        );
+      } else if (
+        code >= 1 &&
+        code <= 3
+      ) {
+        setAmbientWeatherCondition(
+          "Cloudy"
+        );
+      } else if (
+        code >= 51 &&
+        code <= 67
+      ) {
+        setAmbientWeatherCondition(
+          "Rain"
+        );
+      } else if (
+        code >= 71 &&
+        code <= 77
+      ) {
+        setAmbientWeatherCondition(
+          "Snow"
+        );
+      } else if (
+        code >= 80 &&
+        code <= 82
+      ) {
+        setAmbientWeatherCondition(
+          "Rain Showers"
+        );
+      } else if (code >= 95) {
+        setAmbientWeatherCondition(
+          "Thunderstorm"
+        );
+      } else {
+        setAmbientWeatherCondition(
+          "Cloudy"
+        );
+      }
+
+    } catch (error) {
+      console.log(
+        "[MotoSense] Ambient weather error:",
+        error
+      );
+    }
+  };
+
+  loadAmbientWeather();
+
+  return () => {
+    mounted = false;
+  };
+}, []);
 
   const frontStatus =
-    getStatus(frontDistance);
+    getStatus(
+      frontDistance
+    );
+
 
   const rearStatus =
-    getStatus(rearDistance);
+    getStatus(
+      rearDistance
+    );
 
-  const theme = useMemo(
-    () => ({
-      background: darkMode
-        ? "#02060D"
-        : "#F4F7FB",
 
-      panel: darkMode
-        ? "#050D17"
-        : "#FFFFFF",
+  const theme =
+    useMemo(
+      () => ({
 
-      panelSecondary: darkMode
-        ? "#07121F"
-        : "#F7FAFE",
+        background:
+          darkMode
+            ? "#02060D"
+            : "#F4F7FB",
 
-      border: darkMode
-        ? "#18314A"
-        : "#D7E1EC",
+        panel:
+          darkMode
+            ? "#050D17"
+            : "#FFFFFF",
 
-      text: darkMode
-        ? "#FFFFFF"
-        : "#142235",
+        panelSecondary:
+          darkMode
+            ? "#07121F"
+            : "#F7FAFE",
 
-      secondaryText: darkMode
-        ? "#7B91AD"
-        : "#60758D",
+        border:
+          darkMode
+            ? "#18314A"
+            : "#D7E1EC",
 
-      muted: darkMode
-        ? "#91A4BD"
-        : "#65788D",
-    }),
-    [darkMode]
-  );
+        text:
+          darkMode
+            ? "#FFFFFF"
+            : "#142235",
+
+        secondaryText:
+          darkMode
+            ? "#7B91AD"
+            : "#60758D",
+
+        muted:
+          darkMode
+            ? "#91A4BD"
+            : "#65788D",
+
+      }),
+      [darkMode]
+    );
+
 
   return (
     <SafeAreaView
@@ -579,8 +989,11 @@ export default function Dashboard() {
         },
       ]}
     >
+
       <ScrollView
-        scrollEnabled={!isDesktop}
+        scrollEnabled={
+          !isDesktop
+        }
         contentContainerStyle={[
           styles.scrollContent,
 
@@ -590,8 +1003,11 @@ export default function Dashboard() {
           isCompactDesktop &&
             styles.compactDesktopContent,
         ]}
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator={
+          false
+        }
       >
+
         {/* =================================================
             TOP BAR
         ================================================= */}
@@ -603,10 +1019,18 @@ export default function Dashboard() {
               styles.compactTopBar,
           ]}
         >
-          <View style={styles.brandRow}>
+
+          <View
+            style={styles.brandRow}
+          >
+
             <MaterialCommunityIcons
               name="waveform"
-              size={isCompactDesktop ? 24 : 27}
+              size={
+                isCompactDesktop
+                  ? 24
+                  : 27
+              }
               color="#229BFF"
             />
 
@@ -616,22 +1040,35 @@ export default function Dashboard() {
                 isCompactDesktop &&
                   styles.compactBrandText,
                 {
-                  color: darkMode
-                    ? "#9CB3CC"
-                    : "#54708D",
+                  color:
+                    darkMode
+                      ? "#9CB3CC"
+                      : "#54708D",
                 },
               ]}
             >
               MOTOSENSEAI
             </Text>
+
           </View>
+
 
           <View
             style={styles.topActions}
           >
-            {/* CAMERA */}
+
+            {/* TOP CAMERA BUTTON */}
 
             <Pressable
+              onPress={() => {
+
+                setShowCamera(true);
+
+                setShowNavigation(
+                  false
+                );
+
+              }}
               style={[
                 styles.topIconButton,
                 isCompactDesktop &&
@@ -649,6 +1086,7 @@ export default function Dashboard() {
                 },
               ]}
             >
+
               <MaterialCommunityIcons
                 name="camera-outline"
                 size={
@@ -658,14 +1096,17 @@ export default function Dashboard() {
                 }
                 color="#229BFF"
               />
+
             </Pressable>
+
 
             {/* THEME */}
 
             <Pressable
               onPress={() =>
                 setDarkMode(
-                  (value) => !value
+                  (value) =>
+                    !value
                 )
               }
               style={[
@@ -685,6 +1126,7 @@ export default function Dashboard() {
                 },
               ]}
             >
+
               <MaterialCommunityIcons
                 name={
                   darkMode
@@ -702,9 +1144,13 @@ export default function Dashboard() {
                     : "#315A80"
                 }
               />
+
             </Pressable>
+
           </View>
+
         </View>
+
 
         {/* =================================================
             MAIN GRID
@@ -717,6 +1163,7 @@ export default function Dashboard() {
               styles.mobileGrid,
           ]}
         >
+
           {/* =================================================
               LEFT — LIVE RIDE
           ================================================= */}
@@ -735,6 +1182,7 @@ export default function Dashboard() {
               },
             ]}
           >
+
             <View
               style={[
                 styles.liveHeader,
@@ -742,7 +1190,9 @@ export default function Dashboard() {
                   styles.compactLiveHeader,
               ]}
             >
+
               <View>
+
                 <Text
                   style={[
                     styles.liveTitle,
@@ -756,6 +1206,7 @@ export default function Dashboard() {
                 >
                   Live Ride
                 </Text>
+
 
                 <Text
                   style={[
@@ -771,7 +1222,9 @@ export default function Dashboard() {
                   Front & rear proximity
                   monitoring
                 </Text>
+
               </View>
+
 
               <View
                 style={[
@@ -780,6 +1233,7 @@ export default function Dashboard() {
                     styles.compactLiveBadge,
                 ]}
               >
+
                 <View
                   style={[
                     styles.liveDot,
@@ -797,8 +1251,11 @@ export default function Dashboard() {
                 >
                   LIVE
                 </Text>
+
               </View>
+
             </View>
+
 
             {/* =================================================
                 LIVE RIDE CONTENT
@@ -811,6 +1268,7 @@ export default function Dashboard() {
                   styles.mobileRideContentRow,
               ]}
             >
+
               <View
                 style={[
                   styles.rideVisualColumn,
@@ -818,6 +1276,7 @@ export default function Dashboard() {
                     styles.compactRideVisualColumn,
                 ]}
               >
+
                 {/* FRONT SENSOR */}
 
                 <SensorCard
@@ -828,20 +1287,26 @@ export default function Dashboard() {
                   status={
                     frontStatus
                   }
-                  dark={darkMode}
+                  dark={
+                    darkMode
+                  }
                   compact={
                     isCompactDesktop
                   }
                 />
+
 
                 {/* FRONT RADAR */}
 
                 <FrontRadar
-                  dark={darkMode}
+                  dark={
+                    darkMode
+                  }
                   compact={
                     isCompactDesktop
                   }
                 />
+
 
                 {/* BIKE */}
 
@@ -852,6 +1317,7 @@ export default function Dashboard() {
                       styles.compactBikeArea,
                   ]}
                 >
+
                   <View
                     style={[
                       styles.greenRing,
@@ -867,27 +1333,13 @@ export default function Dashboard() {
                     ]}
                   />
 
+
                   <View
                     style={[
                       styles.greenRing,
                       styles.greenMiddle,
                       isCompactDesktop &&
                         styles.compactGreenMiddle,
-                      {
-                        borderColor:
-                          darkMode
-                            ? "#00E67630"
-                            : "#00A95738",
-                      },
-                    ]}
-                  />
-
-                  <View
-                    style={[
-                      styles.greenRing,
-                      styles.greenInner,
-                      isCompactDesktop &&
-                        styles.compactGreenInner,
                       {
                         borderColor:
                           darkMode
@@ -902,8 +1354,27 @@ export default function Dashboard() {
                     ]}
                   />
 
+
+                  <View
+                    style={[
+                      styles.greenRing,
+                      styles.greenInner,
+                      isCompactDesktop &&
+                        styles.compactGreenInner,
+                      {
+                        borderColor:
+                          darkMode
+                            ? "#00E67620"
+                            : "#00A95725",
+                      },
+                    ]}
+                  />
+
+
                   <Image
-                    source={require("../../assets/images/bike-live-ride.png")}
+                    source={require(
+                      "../../assets/images/bike-live-ride.png"
+                    )}
                     style={[
                       styles.bikeImage,
                       isCompactDesktop &&
@@ -911,16 +1382,21 @@ export default function Dashboard() {
                     ]}
                     resizeMode="contain"
                   />
+
                 </View>
+
 
                 {/* REAR RADAR */}
 
                 <RearRadar
-                  dark={darkMode}
+                  dark={
+                    darkMode
+                  }
                   compact={
                     isCompactDesktop
                   }
                 />
+
 
                 {/* REAR SENSOR */}
 
@@ -932,12 +1408,16 @@ export default function Dashboard() {
                   status={
                     rearStatus
                   }
-                  dark={darkMode}
+                  dark={
+                    darkMode
+                  }
                   compact={
                     isCompactDesktop
                   }
                 />
+
               </View>
+
 
               {/* ALERTS */}
 
@@ -948,11 +1428,14 @@ export default function Dashboard() {
                     styles.mobileAlertStack,
                 ]}
               >
+
                 <AlertCard
                   icon="motorbike"
                   label="Crash Detection"
                   color="#FF453A"
-                  dark={darkMode}
+                  dark={
+                    darkMode
+                  }
                   compact={
                     isCompactDesktop
                   }
@@ -962,7 +1445,9 @@ export default function Dashboard() {
                   icon="motorbike"
                   label="Front Proximity"
                   color="#FF9F0A"
-                  dark={darkMode}
+                  dark={
+                    darkMode
+                  }
                   compact={
                     isCompactDesktop
                   }
@@ -972,7 +1457,9 @@ export default function Dashboard() {
                   icon="motorbike"
                   label="Rear Proximity"
                   color="#FF9F0A"
-                  dark={darkMode}
+                  dark={
+                    darkMode
+                  }
                   compact={
                     isCompactDesktop
                   }
@@ -982,14 +1469,20 @@ export default function Dashboard() {
                   icon="alert-circle-outline"
                   label="SOS Emergency Alert"
                   color="#FF453A"
-                  dark={darkMode}
+                  dark={
+                    darkMode
+                  }
                   compact={
                     isCompactDesktop
                   }
                 />
+
               </View>
+
             </View>
+
           </View>
+
 
           {/* =================================================
               RIGHT — LIVE ALERTS
@@ -1009,6 +1502,7 @@ export default function Dashboard() {
               },
             ]}
           >
+
             <View
               style={[
                 styles.rightHeader,
@@ -1016,6 +1510,7 @@ export default function Dashboard() {
                   styles.compactRightHeader,
               ]}
             >
+
               <Text
                 style={[
                   styles.alertTitle,
@@ -1029,10 +1524,12 @@ export default function Dashboard() {
               >
                 Live Alerts
               </Text>
+
             </View>
 
+
             {/* =================================================
-                STATUS / MAP AREA
+                STATUS / MAP / CAMERA AREA
             ================================================= */}
 
             <View
@@ -1042,10 +1539,96 @@ export default function Dashboard() {
                   styles.compactNavigationSpace,
               ]}
             >
-              {!showNavigation ? (
+
+              {/* =================================================
+                  CAMERA
+              ================================================= */}
+
+              {showCamera ? (
+
                 <View
-                  style={styles.statusStack}
+                  style={[
+                    styles.mapPopup,
+                    {
+                      backgroundColor:
+                        "#000000",
+
+                      borderColor:
+                        darkMode
+                          ? "#229BFF55"
+                          : "#BFD3E7",
+                    },
+                  ]}
                 >
+
+                  <Image
+                    source={{
+                      uri:
+                        "http://10.209.147.176:5000/video",
+                    }}
+                    style={
+                      styles.cameraFeed
+                    }
+                    resizeMode="contain"
+                  />
+
+
+                  <View
+                    style={
+                      styles.mapLabel
+                    }
+                  >
+
+                    <MaterialCommunityIcons
+                      name="camera-outline"
+                      size={14}
+                      color="#229BFF"
+                    />
+
+                    <Text
+                      style={
+                        styles.mapLabelText
+                      }
+                    >
+                      LIVE CAMERA
+                    </Text>
+
+                  </View>
+
+
+                  <Pressable
+                    style={
+                      styles.mapCloseButton
+                    }
+                    onPress={() =>
+                      setShowCamera(
+                        false
+                      )
+                    }
+                  >
+
+                    <MaterialCommunityIcons
+                      name="close"
+                      size={19}
+                      color="#FFFFFF"
+                    />
+
+                  </Pressable>
+
+                </View>
+
+              ) : !showNavigation ? (
+
+                /* =================================================
+                   NORMAL LIVE ALERTS
+                ================================================= */
+
+                <View
+                  style={
+                    styles.statusStack
+                  }
+                >
+
                   {/* SAFE */}
 
                   <StatusCard
@@ -1056,20 +1639,27 @@ export default function Dashboard() {
                         "DANGER" ||
                       rearStatus ===
                         "DANGER"
+
                         ? "Immediate danger detected"
+
                         : frontStatus ===
                             "WARNING" ||
                           rearStatus ===
                             "WARNING"
-                          ? "Object detected nearby"
-                          : "All systems clear"
+
+                        ? "Object detected nearby"
+
+                        : "All systems clear"
                     }
                     color="#30D158"
-                    dark={darkMode}
+                    dark={
+                      darkMode
+                    }
                     compact={
                       isCompactDesktop
                     }
                   />
+
 
                   {/* RIDE STATUS */}
 
@@ -1078,26 +1668,44 @@ export default function Dashboard() {
                     title="RIDE STATUS"
                     value="Speed: 0 km/h  •  Idle"
                     color="#229BFF"
-                    dark={darkMode}
+                    dark={
+                      darkMode
+                    }
                     compact={
                       isCompactDesktop
                     }
                   />
+
 
                   {/* WEATHER */}
 
                   <StatusCard
-                    icon="weather-partly-cloudy"
-                    title="WEATHER STATUS"
-                    value="Clear Sky  •  28°C"
-                    color="#4D7CFF"
-                    dark={darkMode}
-                    compact={
-                      isCompactDesktop
-                    }
-                  />
+  icon="weather-partly-cloudy"
+  title="WEATHER STATUS"
+  value={
+    `${ambientWeatherCondition}  •  ${
+      ambientTemperature !== null
+        ? `${ambientTemperature.toFixed(1)}°C`
+        : "--°C"
+    }`
+  }
+  color="#4D7CFF"
+  dark={
+    darkMode
+  }
+  compact={
+    isCompactDesktop
+  }
+/>
+
                 </View>
+
               ) : (
+
+                /* =================================================
+                   NAVIGATION
+                ================================================= */
+
                 <View
                   style={[
                     styles.mapPopup,
@@ -1114,11 +1722,16 @@ export default function Dashboard() {
                     },
                   ]}
                 >
+
                   <DashboardMap />
 
+
                   <View
-                    style={styles.mapLabel}
+                    style={
+                      styles.mapLabel
+                    }
                   >
+
                     <MaterialCommunityIcons
                       name="navigation-variant"
                       size={14}
@@ -1132,7 +1745,9 @@ export default function Dashboard() {
                     >
                       LIVE NAVIGATION
                     </Text>
+
                   </View>
+
 
                   <Pressable
                     style={
@@ -1144,31 +1759,46 @@ export default function Dashboard() {
                       )
                     }
                   >
+
                     <MaterialCommunityIcons
                       name="close"
                       size={19}
                       color="#FFFFFF"
                     />
+
                   </Pressable>
+
                 </View>
+
               )}
+
             </View>
+
 
             {/* =================================================
                 BOTTOM CONTROLS
             ================================================= */}
 
             <View
-              style={styles.bottomControls}
+              style={
+                styles.bottomControls
+              }
             >
+
               <View
-                style={styles.controlRow}
+                style={
+                  styles.controlRow
+                }
               >
+
+                {/* NAVIGATION BUTTON */}
+
                 <Pressable
                   style={[
                     styles.controlButton,
                     isCompactDesktop &&
                       styles.compactControlButton,
+
                     {
                       backgroundColor:
                         darkMode
@@ -1184,12 +1814,19 @@ export default function Dashboard() {
                     showNavigation &&
                       styles.controlButtonActive,
                   ]}
-                  onPress={() =>
+                  onPress={() => {
+
                     setShowNavigation(
                       true
-                    )
-                  }
+                    );
+
+                    setShowCamera(
+                      false
+                    );
+
+                  }}
                 >
+
                   <MaterialCommunityIcons
                     name="navigation-variant"
                     size={
@@ -1213,13 +1850,18 @@ export default function Dashboard() {
                   >
                     Navigation
                   </Text>
+
                 </Pressable>
+
+
+                {/* CAMERA BUTTON */}
 
                 <Pressable
                   style={[
                     styles.controlButton,
                     isCompactDesktop &&
                       styles.compactControlButton,
+
                     {
                       backgroundColor:
                         darkMode
@@ -1231,8 +1873,23 @@ export default function Dashboard() {
                           ? "#173A5A"
                           : "#C8D8E8",
                     },
+
+                    showCamera &&
+                      styles.controlButtonActive,
                   ]}
+                  onPress={() => {
+
+                    setShowCamera(
+                      true
+                    );
+
+                    setShowNavigation(
+                      false
+                    );
+
+                  }}
                 >
+
                   <MaterialCommunityIcons
                     name="camera-outline"
                     size={
@@ -1256,10 +1913,19 @@ export default function Dashboard() {
                   >
                     Camera
                   </Text>
+
                 </Pressable>
+
               </View>
 
-              {showNavigation && (
+
+              {/* =================================================
+                  CLOSE BUTTON
+              ================================================= */}
+
+              {(showNavigation ||
+                showCamera) && (
+
                 <Pressable
                   style={[
                     styles.closeButton,
@@ -1277,12 +1943,19 @@ export default function Dashboard() {
                           : "#FF7770",
                     },
                   ]}
-                  onPress={() =>
+                  onPress={() => {
+
                     setShowNavigation(
                       false
-                    )
-                  }
+                    );
+
+                    setShowCamera(
+                      false
+                    );
+
+                  }}
                 >
+
                   <MaterialCommunityIcons
                     name="close"
                     size={
@@ -1300,24 +1973,32 @@ export default function Dashboard() {
                         styles.compactCloseText,
                     ]}
                   >
-                    Close Navigation &
-                    Camera
+                    Close
                   </Text>
+
                 </Pressable>
+
               )}
+
             </View>
+
           </View>
+
         </View>
+
       </ScrollView>
+
     </SafeAreaView>
   );
 }
+
 
 /* =========================================================
    STYLES
 ========================================================= */
 
 const styles = StyleSheet.create({
+
   /* =======================================================
      SCREEN
   ======================================================= */
@@ -1343,6 +2024,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingBottom: 70,
   },
+
 
   /* =======================================================
      TOP BAR
@@ -1396,6 +2078,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
 
+
   /* =======================================================
      MAIN GRID
   ======================================================= */
@@ -1418,6 +2101,7 @@ const styles = StyleSheet.create({
     flexDirection: "column",
     flex: 0,
   },
+
 
   /* =======================================================
      PANELS
@@ -1444,6 +2128,7 @@ const styles = StyleSheet.create({
   compactPanel: {
     padding: 18,
   },
+
 
   /* =======================================================
      LIVE HEADER
@@ -1481,6 +2166,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 2,
   },
+
 
   /* =======================================================
      LIVE BADGE
@@ -1526,6 +2212,7 @@ const styles = StyleSheet.create({
   compactLiveText: {
     fontSize: 11,
   },
+
 
   /* =======================================================
      SENSOR CARD
@@ -1619,6 +2306,7 @@ const styles = StyleSheet.create({
     fontSize: 9,
   },
 
+
   /* =======================================================
      RADAR
   ======================================================= */
@@ -1652,6 +2340,7 @@ const styles = StyleSheet.create({
     top: 5,
   },
 
+
   /* =======================================================
      BIKE
   ======================================================= */
@@ -1680,6 +2369,7 @@ const styles = StyleSheet.create({
     width: 125,
     height: 190,
   },
+
 
   /* =======================================================
      GREEN RINGS
@@ -1723,6 +2413,7 @@ const styles = StyleSheet.create({
     height: 110,
   },
 
+
   /* =======================================================
      RIDE CONTENT
   ======================================================= */
@@ -1746,6 +2437,7 @@ const styles = StyleSheet.create({
   compactRideVisualColumn: {
     justifyContent: "space-between",
   },
+
 
   /* =======================================================
      ALERT STACK
@@ -1818,6 +2510,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
 
+
   /* =======================================================
      RIGHT HEADER
   ======================================================= */
@@ -1843,8 +2536,9 @@ const styles = StyleSheet.create({
     lineHeight: 32,
   },
 
+
   /* =======================================================
-     NAVIGATION SPACE
+     NAVIGATION / CAMERA SPACE
   ======================================================= */
 
   navigationSpace: {
@@ -1865,6 +2559,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 10,
   },
+
 
   /* =======================================================
      STATUS CARD
@@ -1937,8 +2632,9 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
 
+
   /* =======================================================
-     MAP
+     MAP / CAMERA POPUP
   ======================================================= */
 
   mapPopup: {
@@ -1953,6 +2649,16 @@ const styles = StyleSheet.create({
     elevation: 12,
     shadowOpacity: 0.25,
     shadowRadius: 15,
+  },
+
+  /* =======================================================
+     CAMERA FEED
+  ======================================================= */
+
+  cameraFeed: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#000000",
   },
 
   nativeMap: {
@@ -2026,6 +2732,7 @@ const styles = StyleSheet.create({
     marginLeft: 5,
   },
 
+
   /* =======================================================
      BOTTOM CONTROLS
   ======================================================= */
@@ -2070,6 +2777,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
 
+
   /* =======================================================
      CLOSE BUTTON
   ======================================================= */
@@ -2101,4 +2809,5 @@ const styles = StyleSheet.create({
   compactCloseText: {
     fontSize: 11,
   },
+
 });
