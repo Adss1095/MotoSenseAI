@@ -621,6 +621,30 @@ def rear_status():
         arduino.get_state()
     )
 
+# ============================================================
+# REAR SOS CANCEL
+# ============================================================
+
+@app.route(
+    "/api/rear/sos/cancel",
+    methods=["POST"]
+)
+def rear_sos_cancel():
+
+    success = arduino.cancel_sos()
+
+    if success:
+
+        return jsonify({
+            "success": True,
+            "message": "Rear SOS cancelled"
+        })
+
+    return jsonify({
+        "success": False,
+        "message": "Arduino is not connected"
+    }), 503
+
 
 # ============================================================
 # YOLO STATUS

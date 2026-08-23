@@ -29,6 +29,7 @@ import DashboardMap from "@/components/DashboardMap";
 
 import {
   getFrontState,
+  getRearState,
   getWeatherState,
   getAmbientWeather,
   checkBackend,
@@ -41,23 +42,35 @@ type SensorStatus =
   | "DANGER";
 
 
-const getStatus = (
-  distance: number | null
+const getStatusFromDanger = (
+  danger: string | null | undefined,
+  connected: boolean
 ): SensorStatus => {
 
-  if (distance === null) {
+  if (!connected || !danger) {
     return "WAITING";
   }
 
-  if (distance <= 1) {
-    return "DANGER";
-  }
+  switch (
+    danger.toUpperCase()
+  ) {
 
-  if (distance <= 3) {
-    return "WARNING";
-  }
+    case "RED":
+    case "DANGER":
+      return "DANGER";
 
-  return "SAFE";
+    case "YELLOW":
+    case "WARNING":
+      return "WARNING";
+
+    case "GREEN":
+    case "SAFE":
+    case "CLEAR":
+      return "SAFE";
+
+    default:
+      return "WAITING";
+  }
 };
 
 
@@ -714,8 +727,30 @@ const [
   ] = useState(false);
 
 
-  const rearDistance:
-    number | null = null;
+  const [
+  rearDistance,
+  setRearDistance,
+] = useState<number | null>(
+  null
+);
+
+
+const [
+  rearDangerLevel,
+  setRearDangerLevel,
+] = useState("GREEN");
+
+
+  const [
+    sosStatus,
+    setSosStatus,
+  ] = useState("NORMAL");
+
+
+  const [
+    sosActive,
+    setSosActive,
+  ] = useState(false);
 
 
   useEffect(() => {
@@ -731,6 +766,8 @@ const [
           const front =
             await getFrontState();
 
+          const rear =
+            await getRearState();
 
           if (!mounted) {
             return;
@@ -747,6 +784,43 @@ const [
               "number"
               ? front.distance_m
               : null
+          );
+
+          setRearDistance(
+  typeof rear.distance_m ===
+    "number"
+    ? rear.distance_m
+    : null
+);
+
+
+setRearDangerLevel(
+  rear.danger_level ||
+  rear.led_zone ||
+  "GREEN"
+);
+
+
+          setSosStatus(
+            (
+              rear.sos_status ||
+              "NORMAL"
+            ).toUpperCase()
+          );
+
+
+          setSosActive(
+            rear.sos === true ||
+            (
+              rear.sos_status ||
+              "NORMAL"
+            ).toUpperCase() ===
+              "PENDING" ||
+            (
+              rear.sos_status ||
+              "NORMAL"
+            ).toUpperCase() ===
+              "ACTIVE"
           );
 
 
@@ -924,15 +998,57 @@ const [
 }, []);
 
   const frontStatus =
-    getStatus(
-      frontDistance
+    getStatusFromDanger(
+      dangerLevel,
+      backendConnected
     );
 
 
   const rearStatus =
-    getStatus(
-      rearDistance
+    getStatusFromDanger(
+      rearDangerLevel,
+      backendConnected
     );
+
+
+  const overallStatus: SensorStatus =
+    sosStatus === "ACTIVE" ||
+    frontStatus === "DANGER" ||
+    rearStatus === "DANGER"
+      ? "DANGER"
+      : sosStatus === "PENDING" ||
+        frontStatus === "WARNING" ||
+        rearStatus === "WARNING"
+      ? "WARNING"
+      : frontStatus === "SAFE" ||
+        rearStatus === "SAFE"
+      ? "SAFE"
+      : "WAITING";
+
+
+  const overallStatusTitle =
+    sosStatus === "ACTIVE"
+      ? "SOS ACTIVE"
+      : sosStatus === "PENDING"
+      ? "SOS PENDING"
+      : overallStatus === "DANGER"
+      ? "DANGER"
+      : overallStatus === "WARNING"
+      ? "WARNING"
+      : overallStatus === "SAFE"
+      ? "SAFE"
+      : "WAITING";
+
+
+  const overallStatusColor =
+    sosStatus === "ACTIVE"
+      ? "#FF453A"
+      : sosStatus === "PENDING"
+      ? "#FF9F0A"
+      : getStatusColor(
+          overallStatus,
+          darkMode
+        );
 
 
   const theme =
@@ -1319,56 +1435,66 @@ const [
                 >
 
                   <View
-                    style={[
-                      styles.greenRing,
-                      styles.greenOuter,
-                      isCompactDesktop &&
-                        styles.compactGreenOuter,
-                      {
-                        borderColor:
-                          darkMode
-                            ? "#00E67635"
-                            : "#00A95745",
-                      },
-                    ]}
-                  />
+  style={[
+    styles.greenRing,
+    styles.greenOuter,
+    isCompactDesktop &&
+      styles.compactGreenOuter,
+    {
+      borderColor:
+        rearDangerLevel === "GREEN"
+          ? "#00E676"
+          : "#00E67635",
+
+      opacity:
+        rearDangerLevel === "GREEN"
+          ? 1
+          : 0.35,
+    },
+  ]}
+/>
 
 
                   <View
-                    style={[
-                      styles.greenRing,
-                      styles.greenMiddle,
-                      isCompactDesktop &&
-                        styles.compactGreenMiddle,
-                      {
-                        borderColor:
-                          darkMode
-                            ? "#00E67628"
-                            : "#00A95732",
+  style={[
+    styles.greenRing,
+    styles.greenMiddle,
+    isCompactDesktop &&
+      styles.compactGreenMiddle,
+    {
+      borderColor:
+        rearDangerLevel === "YELLOW"
+          ? "#FFD60A"
+          : "#FFD60A35",
 
-                        backgroundColor:
-                          darkMode
-                            ? "#00E67606"
-                            : "#00A95704",
-                      },
-                    ]}
-                  />
+      opacity:
+        rearDangerLevel === "YELLOW"
+          ? 1
+          : 0.35,
+    },
+  ]}
+/>
 
 
                   <View
-                    style={[
-                      styles.greenRing,
-                      styles.greenInner,
-                      isCompactDesktop &&
-                        styles.compactGreenInner,
-                      {
-                        borderColor:
-                          darkMode
-                            ? "#00E67620"
-                            : "#00A95725",
-                      },
-                    ]}
-                  />
+  style={[
+    styles.greenRing,
+    styles.greenInner,
+    isCompactDesktop &&
+      styles.compactGreenInner,
+    {
+      borderColor:
+        rearDangerLevel === "RED"
+          ? "#FF453A"
+          : "#FF453A35",
+
+      opacity:
+        rearDangerLevel === "RED"
+          ? 1
+          : 0.35,
+    },
+  ]}
+/>
 
 
                   <Image
@@ -1632,26 +1758,38 @@ const [
                   {/* SAFE */}
 
                   <StatusCard
-                    icon="shield-check-outline"
-                    title="SAFE"
-                    value={
-                      frontStatus ===
-                        "DANGER" ||
-                      rearStatus ===
-                        "DANGER"
-
-                        ? "Immediate danger detected"
-
-                        : frontStatus ===
-                            "WARNING" ||
-                          rearStatus ===
-                            "WARNING"
-
-                        ? "Object detected nearby"
-
-                        : "All systems clear"
+                    icon={
+                      sosStatus === "ACTIVE"
+                        ? "alert-octagon-outline"
+                        : sosStatus === "PENDING"
+                        ? "alert-outline"
+                        : overallStatus === "DANGER"
+                        ? "alert-octagon-outline"
+                        : overallStatus === "WARNING"
+                        ? "alert-outline"
+                        : overallStatus === "SAFE"
+                        ? "shield-check-outline"
+                        : "help-circle-outline"
                     }
-                    color="#30D158"
+                    title={
+                      overallStatusTitle
+                    }
+                    value={
+                      sosStatus === "ACTIVE"
+                        ? "Emergency SOS is active"
+                        : sosStatus === "PENDING"
+                        ? "SOS pending — emergency confirmation"
+                        : overallStatus === "DANGER"
+                        ? "Immediate danger detected"
+                        : overallStatus === "WARNING"
+                        ? "Object detected nearby"
+                        : overallStatus === "SAFE"
+                        ? "All systems clear"
+                        : "Waiting for sensor data"
+                    }
+                    color={
+                      overallStatusColor
+                    }
                     dark={
                       darkMode
                     }

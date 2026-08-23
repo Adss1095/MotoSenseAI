@@ -149,6 +149,33 @@ export async function getFrontState() {
 
 }
 
+// ============================================================
+// REAR ARDUINO
+// ============================================================
+
+export type RearState = {
+  connected?: boolean;
+  distance_m?: number | null;
+  danger_level?: string;
+  led_zone?: string;
+  buzzer?: boolean;
+
+  sos?: boolean;
+  sos_status?: string;
+
+  last_event?: string | null;
+  timestamp?: number;
+};
+
+
+export async function getRearState() {
+
+  return apiGet<RearState>(
+    "/api/rear"
+  );
+
+}
+
 
 // ============================================================
 // WEATHER
@@ -182,6 +209,18 @@ export async function cancelSOS() {
 
   return apiPost(
     "/api/sos/cancel"
+  );
+
+}
+
+// ============================================================
+// REAR ARDUINO SOS - CANCEL
+// ============================================================
+
+export async function cancelRearSOS() {
+
+  return apiPost(
+    "/api/rear/sos/cancel"
   );
 
 }
