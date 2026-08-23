@@ -176,6 +176,66 @@ export async function getRearState() {
 
 }
 
+// ============================================================
+// TEMPORARY ALERT HISTORY
+// ============================================================
+
+export type AlertSummaryItem = {
+  count: number;
+  total_duration_s: number;
+};
+
+export type AlertHistoryEvent = {
+  key: string;
+  title: string;
+  source: string;
+  level: string;
+
+  start_time: number;
+
+  end_time: number | null;
+
+  duration_s: number;
+};
+
+export type ActiveAlert = {
+  key: string;
+  title: string;
+  source: string;
+  level: string;
+
+  start_time: number;
+
+  duration_s: number;
+};
+
+export type AlertHistory = {
+  summary: {
+    front_warning: AlertSummaryItem;
+    front_danger: AlertSummaryItem;
+
+    rear_warning: AlertSummaryItem;
+    rear_danger: AlertSummaryItem;
+
+    sos: AlertSummaryItem;
+  };
+
+  events: AlertHistoryEvent[];
+
+  active: ActiveAlert[];
+
+  timestamp: number;
+};
+
+
+export async function getAlertHistory() {
+
+  return apiGet<AlertHistory>(
+    "/api/alerts/history"
+  );
+
+}
+
 
 // ============================================================
 // WEATHER

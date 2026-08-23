@@ -20,6 +20,7 @@ The front ultrasonic/YOLO system does NOT trigger SOS.
 
 import atexit
 import time
+import threading
 
 import cv2
 import RPi.GPIO as GPIO
@@ -109,6 +110,523 @@ GPIO.setup(
 # ============================================================
 
 system_running = False
+
+# ============================================================
+# TEMPORARY ALERT HISTORY — RAM ONLY
+# ============================================================
+#
+# This data is intentionally NOT written to disk.
+# It resets whenever the backend restarts.
+# ============================================================
+
+alert_history_lock = threading.Lock()
+
+alert_summary = {
+    "front_warning": {
+        "count": 0,
+        "total_duration_s": 0.0,
+    },
+
+    "front_danger": {
+        "count": 0,
+        "total_duration_s": 0.0,
+    },
+
+    "rear_warning": {
+        "count": 0,
+        "total_duration_s": 0.0,
+    },
+
+    "rear_danger": {
+        "count": 0,
+        "total_duration_s": 0.0,
+    },
+
+    "sos": {
+        "count": 0,
+        "total_duration_s": 0.0,
+    },
+}
+
+
+# Currently active alert episodes.
+active_alerts = {}
+
+# Recent alert episodes.
+# Kept small so RAM usage cannot grow indefinitely.
+alert_events = []
+
+MAX_ALERT_EVENTS = 100
+
+
+def _close_alert(
+    key,
+    now,
+):
+    """
+    Close an active alert and calculate its duration.
+    """
+
+    active = active_alerts.pop(
+        key,
+        None
+    )
+
+    if active is None:
+        return
+
+    duration = max(
+        0.0,
+        now - active["start_time"]
+    )
+
+    alert_summary[key][
+        "total_duration_s"
+    ] += duration
+
+    for event in reversed(
+        alert_events
+    ):
+
+        if (
+            event["key"] == key
+            and event["end_time"] is None
+        ):
+
+            event["end_time"] = now
+
+            event["duration_s"] = (
+                duration
+            )
+
+            break
+
+
+def _start_alert(
+    key,
+    title,
+    source,
+    level,
+    now,
+):
+    """
+    Start one new alert episode.
+    """
+
+    alert_summary[key][
+        "count"
+    ] += 1
+
+    active_alerts[key] = {
+        "start_time": now,
+        "title": title,
+        "source": source,
+        "level": level,
+    }
+
+    alert_events.append({
+
+        "key": key,
+
+        "title": title,
+
+        "source": source,
+
+        "level": level,
+
+        "start_time": now,
+
+        "end_time": None,
+
+        "duration_s": 0.0,
+
+    })
+
+    # Keep only the latest events in RAM.
+    if len(alert_events) > MAX_ALERT_EVENTS:
+
+        del alert_events[
+            :-MAX_ALERT_EVENTS
+        ]
+
+
+def _update_proximity_alert(
+    source,
+    danger_level,
+    now,
+):
+    """
+    Tracks GREEN → YELLOW → RED transitions.
+
+    A continuous warning/danger period counts
+    as ONE alert, not hundreds of API polls.
+    """
+
+    level = (
+        str(danger_level or "GREEN")
+        .upper()
+    )
+
+    if level not in {
+        "GREEN",
+        "YELLOW",
+        "RED",
+    }:
+
+        level = "GREEN"
+
+
+    if source == "front":
+
+        warning_key = (
+            "front_warning"
+        )
+
+        danger_key = (
+            "front_danger"
+        )
+
+        warning_title = (
+            "Front Warning"
+        )
+
+        danger_title = (
+            "Front Danger"
+        )
+
+    else:
+
+        warning_key = (
+            "rear_warning"
+        )
+
+        danger_key = (
+            "rear_danger"
+        )
+
+        warning_title = (
+            "Rear Warning"
+        )
+
+        danger_title = (
+            "Rear Danger"
+        )
+
+
+    # --------------------------------------------------------
+    # GREEN
+    # --------------------------------------------------------
+
+    if level == "GREEN":
+
+        _close_alert(
+            warning_key,
+            now,
+        )
+
+        _close_alert(
+            danger_key,
+            now,
+        )
+
+        return
+
+
+    # --------------------------------------------------------
+    # YELLOW
+    # --------------------------------------------------------
+
+    if level == "YELLOW":
+
+        # Close RED if it was active.
+        _close_alert(
+            danger_key,
+            now,
+        )
+
+        # Start YELLOW only once.
+        if warning_key not in active_alerts:
+
+            _start_alert(
+
+                warning_key,
+
+                warning_title,
+
+                source,
+
+                "WARNING",
+
+                now,
+            )
+
+        return
+
+
+    # --------------------------------------------------------
+    # RED
+    # --------------------------------------------------------
+
+    if level == "RED":
+
+        # Close YELLOW if it was active.
+        _close_alert(
+            warning_key,
+            now,
+        )
+
+        # Start RED only once.
+        if danger_key not in active_alerts:
+
+            _start_alert(
+
+                danger_key,
+
+                danger_title,
+
+                source,
+
+                "DANGER",
+
+                now,
+            )
+
+
+def _update_sos_alert(
+    sos_status,
+    now,
+):
+    """
+    SOS is counted once when it enters
+    PENDING/ACTIVE.
+
+    PENDING → ACTIVE remains one SOS event.
+    NORMAL closes the event.
+    """
+
+    status = (
+        str(sos_status or "NORMAL")
+        .upper()
+    )
+
+    if status in {
+        "PENDING",
+        "ACTIVE",
+    }:
+
+        if "sos" not in active_alerts:
+
+            _start_alert(
+
+                "sos",
+
+                "Emergency SOS",
+
+                "sos",
+
+                status,
+
+                now,
+            )
+
+        else:
+
+            # Update current SOS level
+            # without creating another count.
+            active_alerts["sos"][
+                "level"
+            ] = status
+
+        return
+
+
+    _close_alert(
+        "sos",
+        now,
+    )
+
+
+def update_alert_history(
+    front_state=None,
+    rear_state=None,
+):
+    """
+    Synchronise the RAM alert history
+    with the latest sensor states.
+    """
+
+    now = time.time()
+
+    with alert_history_lock:
+
+        if front_state is not None:
+
+            _update_proximity_alert(
+
+                "front",
+
+                front_state.get(
+                    "danger_level",
+                    "GREEN"
+                ),
+
+                now,
+            )
+
+
+        if rear_state is not None:
+
+            _update_proximity_alert(
+
+                "rear",
+
+                rear_state.get(
+                    "danger_level",
+                    "GREEN"
+                ),
+
+                now,
+            )
+
+            _update_sos_alert(
+
+                rear_state.get(
+                    "sos_status",
+                    "NORMAL"
+                ),
+
+                now,
+            )
+
+
+def _format_alert_event(
+    event,
+    now,
+):
+    """
+    Return an event with a live duration
+    when the alert is still active.
+    """
+
+    result = event.copy()
+
+    if result["end_time"] is None:
+
+        result["duration_s"] = max(
+            0.0,
+            now - result["start_time"]
+        )
+
+    return result
+
+
+def get_alert_history():
+
+    now = time.time()
+
+    with alert_history_lock:
+
+        summary = {}
+
+        for key, value in (
+            alert_summary.items()
+        ):
+
+            total = (
+                value["total_duration_s"]
+            )
+
+            active = active_alerts.get(
+                key
+            )
+
+            if active is not None:
+
+                total += max(
+                    0.0,
+                    now
+                    - active[
+                        "start_time"
+                    ]
+                )
+
+            summary[key] = {
+
+                "count":
+                    value["count"],
+
+                "total_duration_s":
+                    round(
+                        total,
+                        1
+                    ),
+
+            }
+
+
+        events = [
+
+            _format_alert_event(
+                event,
+                now,
+            )
+
+            for event in alert_events
+        ]
+
+
+        active = []
+
+        for key, data in (
+            active_alerts.items()
+        ):
+
+            active.append({
+
+                "key": key,
+
+                "title":
+                    data["title"],
+
+                "source":
+                    data["source"],
+
+                "level":
+                    data["level"],
+
+                "start_time":
+                    data["start_time"],
+
+                "duration_s":
+                    round(
+                        max(
+                            0.0,
+                            now
+                            - data[
+                                "start_time"
+                            ]
+                        ),
+                        1,
+                    ),
+
+            })
+
+
+        return {
+
+            "summary":
+                summary,
+
+            "events":
+                events,
+
+            "active":
+                active,
+
+            "timestamp":
+                now,
+
+        }
 
 
 # ============================================================
@@ -617,8 +1135,36 @@ def front_status():
 @app.route("/api/rear")
 def rear_status():
 
+    state = arduino.get_state()
+
+    update_alert_history(
+        rear_state=state
+    )
+
     return jsonify(
-        arduino.get_state()
+        state
+    )
+
+# ============================================================
+# TEMPORARY ALERT HISTORY
+# ============================================================
+
+@app.route(
+    "/api/alerts/history"
+)
+def alerts_history():
+
+    front = get_front_safety()
+
+    rear = arduino.get_state()
+
+    update_alert_history(
+        front_state=front,
+        rear_state=rear,
+    )
+
+    return jsonify(
+        get_alert_history()
     )
 
 # ============================================================

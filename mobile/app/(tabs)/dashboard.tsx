@@ -33,6 +33,7 @@ import {
   getWeatherState,
   getAmbientWeather,
   checkBackend,
+  cancelRearSOS,
 } from "@/services/api";
 
 type SensorStatus =
@@ -404,24 +405,22 @@ function SensorCard({
    LIVE ALERT CARD
 ========================================================= */
 
-function AlertCard({
+const AlertCard = ({
   icon,
   label,
   color,
+  status,
   dark,
-  compact = false,
+  compact,
 }: {
-  icon:
-    keyof typeof MaterialCommunityIcons.glyphMap;
-
+  icon: any;
   label: string;
 
   color: string;
-
+  status: string;
   dark: boolean;
-
-  compact?: boolean;
-}) {
+  compact: boolean;
+}) => {
 
   return (
     <View
@@ -752,6 +751,18 @@ const [
     setSosActive,
   ] = useState(false);
 
+  const [
+  sosOverlayVisible,
+  setSosOverlayVisible,
+] = useState(false);
+
+
+const [
+  sosCooldownUntil,
+  setSosCooldownUntil,
+] = useState<number | null>(
+  null
+);
 
   useEffect(() => {
 
@@ -801,27 +812,81 @@ setRearDangerLevel(
 );
 
 
-          setSosStatus(
-            (
-              rear.sos_status ||
-              "NORMAL"
-            ).toUpperCase()
-          );
+          const currentRearDanger =
+  (
+    rear.danger_level ||
+    rear.led_zone ||
+    "GREEN"
+  ).toUpperCase();
+
+const currentSosStatus =
+  (
+    rear.sos_status ||
+    "NORMAL"
+  ).toUpperCase();
 
 
-          setSosActive(
-            rear.sos === true ||
-            (
-              rear.sos_status ||
-              "NORMAL"
-            ).toUpperCase() ===
-              "PENDING" ||
-            (
-              rear.sos_status ||
-              "NORMAL"
-            ).toUpperCase() ===
-              "ACTIVE"
-          );
+const rearIsRed =
+  currentRearDanger === "RED" ||
+  currentRearDanger === "DANGER";
+
+
+const cooldownActive =
+  sosCooldownUntil !== null &&
+  Date.now() <
+    sosCooldownUntil;
+
+
+if (
+  !rearIsRed
+) {
+
+  setSosStatus(
+    "NORMAL"
+  );
+
+  setSosActive(
+    false
+  );
+
+  setSosOverlayVisible(
+    false
+  );
+
+} else if (
+  !cooldownActive
+) {
+
+  setSosStatus(
+    currentSosStatus
+  );
+
+  setSosActive(
+    currentSosStatus ===
+      "ACTIVE"
+  );
+
+  setSosOverlayVisible(
+    currentSosStatus ===
+      "ACTIVE"
+  );
+
+
+
+} else {
+
+  setSosStatus(
+    "NORMAL"
+  );
+
+  setSosActive(
+    false
+  );
+
+  setSosOverlayVisible(
+    false
+  );
+}
 
 
           setDangerLevel(
@@ -898,7 +963,79 @@ setRearDangerLevel(
 
     };
 
-  }, []);
+  }, [sosCooldownUntil]);
+
+  const handleCancelSOS =
+  async () => {
+
+    try {
+
+      await cancelRearSOS();
+
+    } catch (error) {
+
+      console.log(
+        "[MotoSense] SOS cancel error:",
+        error
+      );
+
+    }
+
+    setSosStatus(
+      "NORMAL"
+    );
+
+    setSosActive(
+      false
+    );
+
+    setSosOverlayVisible(
+      false
+    );
+
+    setSosCooldownUntil(
+      null
+    );
+  };
+
+
+const handleTrafficSOS =
+  async () => {
+
+    try {
+
+      await cancelRearSOS();
+
+    } catch (error) {
+
+      console.log(
+        "[MotoSense] SOS traffic reset error:",
+        error
+      );
+
+    }
+
+    const cooldownEnd =
+      Date.now() +
+      3 * 60 * 1000;
+
+
+    setSosCooldownUntil(
+      cooldownEnd
+    );
+
+    setSosStatus(
+      "NORMAL"
+    );
+
+    setSosActive(
+      false
+    );
+
+    setSosOverlayVisible(
+      false
+    );
+  };
 
   useEffect(() => {
   let mounted = true;
@@ -1011,10 +1148,13 @@ setRearDangerLevel(
     );
 
 
+  const crashDetected =
+  frontStatus === "DANGER" &&
+  rearStatus === "DANGER";
+
+
   const overallStatus: SensorStatus =
-    sosStatus === "ACTIVE" ||
-    frontStatus === "DANGER" ||
-    rearStatus === "DANGER"
+    crashDetected
       ? "DANGER"
       : sosStatus === "PENDING" ||
         frontStatus === "WARNING" ||
@@ -1555,53 +1695,102 @@ setRearDangerLevel(
                 ]}
               >
 
-                <AlertCard
-                  icon="motorbike"
-                  label="Crash Detection"
-                  color="#FF453A"
-                  dark={
-                    darkMode
-                  }
-                  compact={
-                    isCompactDesktop
-                  }
-                />
+ <AlertCard
+  icon="motorbike"
+  label="Crash Detection"
+  color={
+    crashDetected
+      ? "#FF453A"
+      : "#34C759"
+  }
+  status={
+    crashDetected
+      ? "DANGER"
+      : "SAFE"
+  }
+  dark={darkMode}
+  compact={isCompactDesktop}
+/>
 
-                <AlertCard
-                  icon="motorbike"
-                  label="Front Proximity"
-                  color="#FF9F0A"
-                  dark={
-                    darkMode
-                  }
-                  compact={
-                    isCompactDesktop
-                  }
-                />
+<AlertCard
+  icon="motorbike"
+  label="Front Proximity"
+  color={
+    frontStatus === "DANGER"
+      ? "#FF453A"
+      : frontStatus === "WARNING"
+        ? "#FF9F0A"
+        : "#34C759"
+  }
+  status={
+    frontStatus === "DANGER"
+      ? "DANGER"
+      : frontStatus === "WARNING"
+        ? "WARNING"
+        : frontStatus === "SAFE"
+          ? "SAFE"
+          : "WAITING"
+  }
+  dark={
+    darkMode
+  }
+  compact={
+    isCompactDesktop
+  }
+/>
 
-                <AlertCard
-                  icon="motorbike"
-                  label="Rear Proximity"
-                  color="#FF9F0A"
-                  dark={
-                    darkMode
-                  }
-                  compact={
-                    isCompactDesktop
-                  }
-                />
+<AlertCard
+  icon="motorbike"
+  label="Rear Proximity"
+  color={
+    rearStatus === "DANGER"
+      ? "#FF453A"
+      : rearStatus === "WARNING"
+        ? "#FF9F0A"
+        : "#34C759"
+  }
+  status={
+    rearStatus === "DANGER"
+      ? "DANGER"
+      : rearStatus === "WARNING"
+        ? "WARNING"
+        : rearStatus === "SAFE"
+          ? "SAFE"
+          : "WAITING"
+  }
+  dark={
+    darkMode
+  }
+  compact={
+    isCompactDesktop
+  }
+/>
 
-                <AlertCard
-                  icon="alert-circle-outline"
-                  label="SOS Emergency Alert"
-                  color="#FF453A"
-                  dark={
-                    darkMode
-                  }
-                  compact={
-                    isCompactDesktop
-                  }
-                />
+<AlertCard
+  icon="alert-circle-outline"
+  label="SOS Emergency Alert"
+  color={
+    sosStatus === "ACTIVE"
+      ? "#FF453A"
+      : sosStatus === "PENDING"
+        ? "#FF9F0A"
+        : "#34C759"
+  }
+  status={
+    sosStatus === "ACTIVE"
+      ? "SOS ACTIVE"
+      : sosStatus === "PENDING"
+        ? "SOS PENDING"
+        : "NORMAL"
+  }
+  dark={
+    darkMode
+  }
+  compact={
+    isCompactDesktop
+  }
+/>
+                
 
               </View>
 
@@ -1659,12 +1848,12 @@ setRearDangerLevel(
             ================================================= */}
 
             <View
-              style={[
-                styles.navigationSpace,
-                isCompactDesktop &&
-                  styles.compactNavigationSpace,
-              ]}
-            >
+  style={[
+    styles.navigationSpace,
+    isCompactDesktop &&
+      styles.compactNavigationSpace,
+  ]}
+>
 
               {/* =================================================
                   CAMERA
@@ -2126,7 +2315,121 @@ setRearDangerLevel(
 
       </ScrollView>
 
-    </SafeAreaView>
+
+{/* =========================================================
+    SOS ACTIVE OVERLAY
+========================================================= */}
+
+{sosOverlayVisible && (
+
+  <View
+    style={
+      styles.sosOverlay
+    }
+  >
+
+    <View
+      style={
+        styles.sosOverlayCard
+      }
+    >
+
+      <MaterialCommunityIcons
+        name="alert-octagon"
+        size={64}
+        color="#FF453A"
+      />
+
+
+      <Text
+        style={
+          styles.sosOverlayTitle
+        }
+      >
+        SOS ACTIVE
+      </Text>
+
+
+      <Text
+        style={
+          styles.sosOverlayMessage
+        }
+      >
+        Emergency danger detected
+      </Text>
+
+
+      <View
+        style={
+          styles.sosButtonRow
+        }
+      >
+
+        {/* CANCEL */}
+
+        <Pressable
+          style={
+            styles.sosCancelButton
+          }
+          onPress={
+            handleCancelSOS
+          }
+        >
+
+          <MaterialCommunityIcons
+            name="close-circle-outline"
+            size={22}
+            color="#FFFFFF"
+          />
+
+          <Text
+            style={
+              styles.sosButtonText
+            }
+          >
+            CANCEL
+          </Text>
+
+        </Pressable>
+
+
+        {/* TRAFFIC */}
+
+        <Pressable
+          style={
+            styles.sosTrafficButton
+          }
+          onPress={
+            handleTrafficSOS
+          }
+        >
+
+          <MaterialCommunityIcons
+            name="traffic-light"
+            size={22}
+            color="#FFFFFF"
+          />
+
+          <Text
+            style={
+              styles.sosButtonText
+            }
+          >
+            TRAFFIC
+          </Text>
+
+        </Pressable>
+
+      </View>
+
+    </View>
+
+  </View>
+
+)}
+
+
+</SafeAreaView>
   );
 }
 
@@ -2136,6 +2439,140 @@ setRearDangerLevel(
 ========================================================= */
 
 const styles = StyleSheet.create({
+
+  /* =======================================================
+     SOS OVERLAY
+  ======================================================= */
+
+  sosOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+
+    backgroundColor:
+      "rgba(255, 69, 58, 0.35)",
+
+    alignItems: "center",
+    justifyContent: "center",
+
+    zIndex: 9999,
+    elevation: 9999,
+  },
+
+  sosOverlayCard: {
+    width: "86%",
+    maxWidth: 520,
+
+    borderRadius: 28,
+
+    paddingHorizontal: 28,
+    paddingVertical: 32,
+
+    alignItems: "center",
+
+    backgroundColor:
+      "rgba(20, 8, 10, 0.96)",
+
+    borderWidth: 2,
+    borderColor: "#FF453A",
+
+    shadowColor: "#FF453A",
+
+    shadowOffset: {
+      width: 0,
+      height: 8,
+    },
+
+    shadowOpacity: 0.35,
+    shadowRadius: 20,
+
+    elevation: 20,
+  },
+
+  sosOverlayTitle: {
+    marginTop: 14,
+
+    fontSize: 30,
+    fontWeight: "900",
+    letterSpacing: 1.5,
+
+    color: "#FFFFFF",
+  },
+
+  sosOverlayMessage: {
+    marginTop: 8,
+
+    fontSize: 15,
+    fontWeight: "600",
+
+    textAlign: "center",
+
+    color: "#FFD9D6",
+  },
+
+  sosButtonRow: {
+    width: "100%",
+
+    flexDirection: "row",
+
+    gap: 12,
+
+    marginTop: 28,
+  },
+
+  sosCancelButton: {
+    flex: 1,
+
+    minHeight: 52,
+
+    borderRadius: 14,
+
+    backgroundColor: "#3A2022",
+
+    borderWidth: 1,
+    borderColor: "#FF453A",
+
+    flexDirection: "row",
+
+    alignItems: "center",
+    justifyContent: "center",
+
+    gap: 7,
+  },
+
+  sosTrafficButton: {
+    flex: 1,
+
+    minHeight: 52,
+
+    borderRadius: 14,
+
+    backgroundColor: "#A85D00",
+
+    borderWidth: 1,
+    borderColor: "#FF9F0A",
+
+    flexDirection: "row",
+
+    alignItems: "center",
+    justifyContent: "center",
+
+    gap: 7,
+  },
+
+  sosButtonText: {
+    fontSize: 14,
+
+    fontWeight: "900",
+
+    letterSpacing: 0.8,
+
+    color: "#FFFFFF",
+  },
+
+  // YOUR EXISTING STYLES CONTINUE BELOW
 
   /* =======================================================
      SCREEN
@@ -2687,9 +3124,17 @@ const styles = StyleSheet.create({
     position: "relative",
   },
 
+  mobileNavigationSpace: {
+    marginBottom: 14,
+    height: 320,
+    minHeight: 320,
+    flex: 0,
+  },
+
   compactNavigationSpace: {
     marginBottom: 9,
   },
+  
 
   statusStack: {
     flex: 1,

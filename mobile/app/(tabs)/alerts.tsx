@@ -1,4 +1,9 @@
-import React, { useState } from 'react';
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
 import {
   View,
   Text,
@@ -7,619 +12,1462 @@ import {
   Pressable,
   StatusBar,
   useColorScheme,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+} from "react-native";
 
-type FilterType = 'All' | 'Warnings' | 'SOS' | 'System';
+import {
+  Ionicons,
+} from "@expo/vector-icons";
 
-type AlertItem = {
-  type: 'warning' | 'sos' | 'system';
-  icon: keyof typeof Ionicons.glyphMap;
-  title: string;
-  description: string;
-  time: string;
-};
+import {
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
-const todayAlerts: AlertItem[] = [
-  {
-    type: 'warning',
-    icon: 'eye-outline',
-    title: 'Blind Spot Warning',
-    description: 'Vehicle detected in right blind spot',
-    time: '08:42 PM',
-  },
-  {
-    type: 'warning',
-    icon: 'warning-outline',
-    title: 'Front Obstacle',
-    description: 'Obstacle detected 2.3m ahead',
-    time: '08:31 PM',
-  },
-  {
-    type: 'system',
-    icon: 'checkmark-circle-outline',
-    title: 'System Check',
-    description: 'All systems operational',
-    time: '07:15 PM',
-  },
-  {
-    type: 'sos',
-    icon: 'alert-circle-outline',
-    title: 'Crash Detected',
-    description: 'SOS alert sent to emergency contacts',
-    time: '06:48 PM',
-  },
-];
+import {
+  getAlertHistory,
+  AlertHistory,
+  AlertHistoryEvent,
+} from "@/services/api";
 
-const yesterdayAlerts: AlertItem[] = [
-  {
-    type: 'warning',
-    icon: 'arrow-down-circle-outline',
-    title: 'Rear Obstacle',
-    description: 'Obstacle detected behind',
-    time: '09:10 PM',
-  },
-  {
-    type: 'system',
-    icon: 'play-circle-outline',
-    title: 'Ride Started',
-    description: 'Ride tracking initiated',
-    time: '08:02 AM',
-  },
-];
+
+type FilterType =
+  | "All"
+  | "Warnings"
+  | "Danger"
+  | "SOS";
+
 
 const filters: FilterType[] = [
-  'All',
-  'Warnings',
-  'SOS',
-  'System',
+  "All",
+  "Warnings",
+  "Danger",
+  "SOS",
 ];
 
-const alertColors = {
-  warning: {
-    primary: '#FFB800',
-    darkBackground: 'rgba(255, 184, 0, 0.10)',
-    lightBackground: 'rgba(255, 184, 0, 0.12)',
-  },
-  sos: {
-    primary: '#FF4D4D',
-    darkBackground: 'rgba(255, 77, 77, 0.10)',
-    lightBackground: 'rgba(255, 77, 77, 0.10)',
-  },
-  system: {
-    primary: '#00C985',
-    darkBackground: 'rgba(0, 255, 157, 0.10)',
-    lightBackground: 'rgba(0, 200, 133, 0.10)',
-  },
+
+const formatDuration = (
+  seconds: number
+) => {
+
+  const totalSeconds =
+    Math.max(
+      0,
+      Math.round(seconds)
+    );
+
+  const minutes =
+    Math.floor(
+      totalSeconds / 60
+    );
+
+  const secs =
+    totalSeconds % 60;
+
+  if (minutes > 0) {
+
+    return `${minutes}m ${secs}s`;
+
+  }
+
+  return `${secs}s`;
 };
 
+
+const formatTime = (
+  timestamp: number
+) => {
+
+  return new Date(
+    timestamp * 1000
+  ).toLocaleTimeString(
+    [],
+    {
+      hour: "2-digit",
+      minute: "2-digit",
+    }
+  );
+};
+
+
+const getEventType = (
+  event: AlertHistoryEvent
+) => {
+
+  if (
+    event.key === "sos"
+  ) {
+
+    return "sos";
+
+  }
+
+  if (
+    event.level === "DANGER"
+  ) {
+
+    return "danger";
+
+  }
+
+  return "warning";
+};
+
+
+const getEventIcon = (
+  event: AlertHistoryEvent
+): keyof typeof Ionicons.glyphMap => {
+
+  if (
+    event.key === "sos"
+  ) {
+
+    return "alert-circle-outline";
+
+  }
+
+  if (
+    event.source === "front"
+  ) {
+
+    return "arrow-up-circle-outline";
+
+  }
+
+  return "arrow-down-circle-outline";
+};
+
+
+const getEventColor = (
+  event: AlertHistoryEvent
+) => {
+
+  if (
+    event.key === "sos"
+  ) {
+
+    return "#FF453A";
+
+  }
+
+  if (
+    event.level === "DANGER"
+  ) {
+
+    return "#FF453A";
+
+  }
+
+  return "#FFB800";
+};
+
+
 export default function Alerts() {
+
   const [selectedFilter, setSelectedFilter] =
-    useState<FilterType>('All');
+    useState<FilterType>(
+      "All"
+    );
 
-  const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
+  const [history, setHistory] =
+    useState<AlertHistory | null>(
+      null
+    );
 
-  const isDark = colorScheme !== 'light';
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
 
-  /*
-   * ============================
-   * THEME COLORS
-   * ============================
-   */
+
+  const insets =
+    useSafeAreaInsets();
+
+  const colorScheme =
+    useColorScheme();
+
+  const isDark =
+    colorScheme !== "light";
+
 
   const colors = {
-    background: isDark
-      ? '#0A0F1A'
-      : '#F6F8FC',
 
-    card: isDark
-      ? '#131824'
-      : '#FFFFFF',
+    background:
+      isDark
+        ? "#0A0F1A"
+        : "#F6F8FC",
 
-    border: isDark
-      ? '#1C2333'
-      : '#E3E8F0',
+    card:
+      isDark
+        ? "#131824"
+        : "#FFFFFF",
 
-    primaryText: isDark
-      ? '#F6F8FC'
-      : '#0A0F1A',
+    border:
+      isDark
+        ? "#1C2333"
+        : "#E3E8F0",
 
-    secondaryText: isDark
-      ? '#8F98AA'
-      : '#667085',
+    primaryText:
+      isDark
+        ? "#F6F8FC"
+        : "#0A0F1A",
 
-    timeText: isDark
-      ? '#9AA3B5'
-      : '#667085',
+    secondaryText:
+      isDark
+        ? "#8F98AA"
+        : "#667085",
 
-    filterText: isDark
-      ? '#A7AFBF'
-      : '#667085',
+    timeText:
+      isDark
+        ? "#9AA3B5"
+        : "#667085",
 
-    selectedFilterText: '#FFFFFF',
-
-    navIcon: isDark
-      ? '#8F98AA'
-      : '#667085',
   };
 
-  const filterAlerts = (alerts: AlertItem[]) => {
-    if (selectedFilter === 'All') {
-      return alerts;
-    }
 
-    if (selectedFilter === 'Warnings') {
-      return alerts.filter(
-        (alert) => alert.type === 'warning'
+  // ==========================================================
+  // LIVE HISTORY POLLING
+  // ==========================================================
+
+  useEffect(() => {
+
+    let mounted = true;
+
+    const loadHistory =
+      async () => {
+
+        try {
+
+          const data =
+            await getAlertHistory();
+
+          if (mounted) {
+
+            setHistory(data);
+
+            setLoading(false);
+
+          }
+
+        } catch (error) {
+
+          console.log(
+            "Alert history error:",
+            error
+          );
+
+          if (mounted) {
+
+            setLoading(false);
+
+          }
+
+        }
+
+      };
+
+
+    loadHistory();
+
+
+    const interval =
+      setInterval(
+        loadHistory,
+        1000
       );
-    }
 
-    if (selectedFilter === 'SOS') {
-      return alerts.filter(
-        (alert) => alert.type === 'sos'
+
+    return () => {
+
+      mounted = false;
+
+      clearInterval(
+        interval
       );
-    }
 
-    return alerts.filter(
-      (alert) => alert.type === 'system'
-    );
-  };
+    };
 
-  const filteredToday = filterAlerts(todayAlerts);
-  const filteredYesterday =
-    filterAlerts(yesterdayAlerts);
+  }, []);
+
+
+  // ==========================================================
+  // SUMMARY
+  // ==========================================================
+
+  const summary =
+    history?.summary;
+
+
+  const warningCount =
+    (summary?.front_warning.count ?? 0)
+    +
+    (summary?.rear_warning.count ?? 0);
+
+
+  const dangerCount =
+    (summary?.front_danger.count ?? 0)
+    +
+    (summary?.rear_danger.count ?? 0);
+
+
+  const sosCount =
+    summary?.sos.count ?? 0;
+
+
+  const warningDuration =
+    (summary?.front_warning.total_duration_s ?? 0)
+    +
+    (summary?.rear_warning.total_duration_s ?? 0);
+
+
+  const dangerDuration =
+    (summary?.front_danger.total_duration_s ?? 0)
+    +
+    (summary?.rear_danger.total_duration_s ?? 0);
+
+
+  const sosDuration =
+    summary?.sos.total_duration_s ?? 0;
+
+
+  // ==========================================================
+  // FILTER EVENTS
+  // ==========================================================
+
+  const filteredEvents =
+    useMemo(() => {
+
+      const events =
+        history?.events ?? [];
+
+      return events
+        .slice()
+        .reverse()
+        .filter(
+          (event) => {
+
+            const type =
+              getEventType(
+                event
+              );
+
+            if (
+              selectedFilter ===
+              "All"
+            ) {
+
+              return true;
+
+            }
+
+            if (
+              selectedFilter ===
+              "Warnings"
+            ) {
+
+              return (
+                type === "warning"
+              );
+
+            }
+
+            if (
+              selectedFilter ===
+              "Danger"
+            ) {
+
+              return (
+                type === "danger"
+              );
+
+            }
+
+            if (
+              selectedFilter ===
+              "SOS"
+            ) {
+
+              return (
+                type === "sos"
+              );
+
+            }
+
+            return true;
+
+          }
+        );
+
+    }, [
+      history,
+      selectedFilter,
+    ]);
+
 
   return (
+
     <View
       style={[
         styles.container,
         {
-          backgroundColor: colors.background,
+          backgroundColor:
+            colors.background,
         },
       ]}
     >
+
       <StatusBar
         barStyle={
           isDark
-            ? 'light-content'
-            : 'dark-content'
+            ? "light-content"
+            : "dark-content"
         }
-        backgroundColor={colors.background}
-        translucent={false}
+        backgroundColor={
+          colors.background
+        }
       />
 
+
       {/* SAFE AREA */}
+
       <View
         style={[
           styles.topSafeArea,
           {
-            height: insets.top,
+            height:
+              insets.top,
+
             backgroundColor:
               colors.background,
           },
         ]}
       />
 
+
       {/* HEADER */}
-      <View style={styles.header}>
-        <View style={styles.headerSide} />
+
+      <View
+        style={styles.header}
+      >
+
+        <View
+          style={
+            styles.headerSide
+          }
+        />
 
         <Text
           style={[
             styles.headerTitle,
             {
-              color: colors.primaryText,
+              color:
+                colors.primaryText,
             },
           ]}
         >
           Alerts
         </Text>
 
-        <Pressable
-          style={styles.filterButton}
-          hitSlop={8}
-        >
-          <Ionicons
-            name="filter-outline"
-            size={22}
-            color={colors.primaryText}
-          />
-        </Pressable>
+        <View
+          style={
+            styles.headerSide
+          }
+        />
+
       </View>
+
 
       {/* FILTERS */}
-      <View style={styles.filterContainer}>
-        {filters.map((filter) => {
-          const isSelected =
-            selectedFilter === filter;
 
-          return (
-            <Pressable
-              key={filter}
-              onPress={() =>
-                setSelectedFilter(filter)
-              }
-              style={[
-                styles.filterPill,
-                {
-                  backgroundColor:
-                    colors.card,
-                  borderColor:
-                    colors.border,
-                },
-                isSelected &&
-                  styles.filterPillSelected,
-              ]}
-            >
-              <Text
+      <View
+        style={
+          styles.filterContainer
+        }
+      >
+
+        {filters.map(
+          (filter) => {
+
+            const selected =
+              selectedFilter ===
+              filter;
+
+            return (
+
+              <Pressable
+                key={filter}
+                onPress={() =>
+                  setSelectedFilter(
+                    filter
+                  )
+                }
                 style={[
-                  styles.filterText,
+                  styles.filterPill,
                   {
-                    color:
-                      colors.filterText,
+                    backgroundColor:
+                      colors.card,
+
+                    borderColor:
+                      colors.border,
                   },
-                  isSelected && {
-                    color:
-                      colors.selectedFilterText,
-                  },
+
+                  selected &&
+                    styles.filterPillSelected,
                 ]}
               >
-                {filter}
-              </Text>
-            </Pressable>
-          );
-        })}
+
+                <Text
+                  style={[
+                    styles.filterText,
+                    {
+                      color:
+                        selected
+                          ? "#FFFFFF"
+                          : colors.secondaryText,
+                    },
+                  ]}
+                >
+                  {filter}
+                </Text>
+
+              </Pressable>
+
+            );
+
+          }
+        )}
+
       </View>
 
-      {/* ALERT LIST */}
+
       <ScrollView
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator={
+          false
+        }
         contentContainerStyle={[
           styles.scrollContent,
           {
             paddingBottom:
-              insets.bottom + 88,
+              insets.bottom + 100,
           },
         ]}
       >
-        {filteredToday.length > 0 && (
-          <AlertSection
-            title="Today"
-            alerts={filteredToday}
+
+
+        {/* ==================================================
+            SUMMARY
+        ================================================== */}
+
+        <Text
+          style={[
+            styles.sectionTitle,
+            {
+              color:
+                colors.primaryText,
+            },
+          ]}
+        >
+          Live Summary
+        </Text>
+
+
+        <View
+          style={
+            styles.summaryGrid
+          }
+        >
+
+          <SummaryCard
+            title="Warnings"
+            count={warningCount}
+            duration={
+              warningDuration
+            }
+            color="#FFB800"
             colors={colors}
-            isDark={isDark}
           />
+
+
+          <SummaryCard
+            title="Danger"
+            count={dangerCount}
+            duration={
+              dangerDuration
+            }
+            color="#FF453A"
+            colors={colors}
+          />
+
+
+          <SummaryCard
+            title="SOS"
+            count={sosCount}
+            duration={
+              sosDuration
+            }
+            color="#FF453A"
+            colors={colors}
+          />
+
+        </View>
+
+
+        {/* ==================================================
+            CURRENTLY ACTIVE
+        ================================================== */}
+
+        {(history?.active.length ?? 0) >
+          0 && (
+
+          <View>
+
+            <Text
+              style={[
+                styles.sectionTitle,
+                {
+                  color:
+                    colors.primaryText,
+                },
+              ]}
+            >
+              Currently Active
+            </Text>
+
+
+            {history?.active.map(
+              (alert) => (
+
+                <View
+                  key={
+                    alert.key
+                  }
+                  style={[
+                    styles.activeCard,
+                    {
+                      backgroundColor:
+                        colors.card,
+
+                      borderColor:
+                        colors.border,
+                    },
+                  ]}
+                >
+
+                  <View
+                    style={[
+                      styles.activeIcon,
+                      {
+                        backgroundColor:
+                          "rgba(255,69,58,0.12)",
+                      },
+                    ]}
+                  >
+
+                    <Ionicons
+                      name={
+                        alert.key ===
+                        "sos"
+                          ? "alert-circle-outline"
+                          : "warning-outline"
+                      }
+                      size={24}
+                      color={
+                        alert.level ===
+                        "WARNING"
+                          ? "#FFB800"
+                          : "#FF453A"
+                      }
+                    />
+
+                  </View>
+
+
+                  <View
+                    style={
+                      styles.activeContent
+                    }
+                  >
+
+                    <Text
+                      style={[
+                        styles.activeTitle,
+                        {
+                          color:
+                            colors.primaryText,
+                        },
+                      ]}
+                    >
+                      {alert.title}
+                    </Text>
+
+
+                    <Text
+                      style={[
+                        styles.activeDescription,
+                        {
+                          color:
+                            colors.secondaryText,
+                        },
+                      ]}
+                    >
+                      Active for{" "}
+                      {formatDuration(
+                        alert.duration_s
+                      )}
+                    </Text>
+
+                  </View>
+
+
+                  <View
+                    style={
+                      styles.liveBadge
+                    }
+                  >
+
+                    <View
+                      style={
+                        styles.liveDot
+                      }
+                    />
+
+                    <Text
+                      style={
+                        styles.liveText
+                      }
+                    >
+                      LIVE
+                    </Text>
+
+                  </View>
+
+                </View>
+
+              )
+            )}
+
+          </View>
+
         )}
 
-        {filteredYesterday.length > 0 && (
-          <AlertSection
-            title="Yesterday"
-            alerts={filteredYesterday}
-            colors={colors}
-            isDark={isDark}
-          />
+
+        {/* ==================================================
+            HISTORY
+        ================================================== */}
+
+        <Text
+          style={[
+            styles.sectionTitle,
+            {
+              color:
+                colors.primaryText,
+            },
+          ]}
+        >
+          Alert History
+        </Text>
+
+
+        {loading ? (
+
+          <View
+            style={
+              styles.emptyState
+            }
+          >
+
+            <Ionicons
+              name="sync-outline"
+              size={30}
+              color="#7C3AED"
+            />
+
+            <Text
+              style={[
+                styles.emptyTitle,
+                {
+                  color:
+                    colors.primaryText,
+                },
+              ]}
+            >
+              Loading live alerts...
+            </Text>
+
+          </View>
+
+        ) : filteredEvents.length ===
+          0 ? (
+
+          <View
+            style={
+              styles.emptyState
+            }
+          >
+
+            <Ionicons
+              name="shield-checkmark-outline"
+              size={40}
+              color="#00C985"
+            />
+
+            <Text
+              style={[
+                styles.emptyTitle,
+                {
+                  color:
+                    colors.primaryText,
+                },
+              ]}
+            >
+              No alerts yet
+            </Text>
+
+            <Text
+              style={[
+                styles.emptyDescription,
+                {
+                  color:
+                    colors.secondaryText,
+                },
+              ]}
+            >
+              Warnings and dangers will
+              appear here automatically.
+            </Text>
+
+          </View>
+
+        ) : (
+
+          filteredEvents.map(
+            (event, index) => {
+
+              const color =
+                getEventColor(
+                  event
+                );
+
+              const active =
+                event.end_time ===
+                null;
+
+              return (
+
+                <View
+                  key={`${event.key}-${event.start_time}-${index}`}
+                  style={[
+                    styles.alertCard,
+                    {
+                      backgroundColor:
+                        colors.card,
+
+                      borderColor:
+                        colors.border,
+                    },
+                  ]}
+                >
+
+                  <View
+                    style={[
+                      styles.alertIconContainer,
+                      {
+                        backgroundColor:
+                          `${color}18`,
+                      },
+                    ]}
+                  >
+
+                    <Ionicons
+                      name={
+                        getEventIcon(
+                          event
+                        )
+                      }
+                      size={24}
+                      color={color}
+                    />
+
+                  </View>
+
+
+                  <View
+                    style={
+                      styles.alertContent
+                    }
+                  >
+
+                    <Text
+                      style={[
+                        styles.alertTitle,
+                        {
+                          color:
+                            colors.primaryText,
+                        },
+                      ]}
+                    >
+                      {event.title}
+                    </Text>
+
+
+                    <Text
+                      style={[
+                        styles.alertDescription,
+                        {
+                          color:
+                            colors.secondaryText,
+                        },
+                      ]}
+                    >
+                      {event.level}
+                      {" • "}
+                      {active
+                        ? "Currently active"
+                        : `Duration ${formatDuration(
+                            event.duration_s
+                          )}`}
+                    </Text>
+
+
+                    <Text
+                      style={[
+                        styles.alertStartTime,
+                        {
+                          color:
+                            colors.timeText,
+                        },
+                      ]}
+                    >
+                      Started{" "}
+                      {formatTime(
+                        event.start_time
+                      )}
+                    </Text>
+
+                  </View>
+
+
+                  {active && (
+
+                    <View
+                      style={
+                        styles.liveBadge
+                      }
+                    >
+
+                      <View
+                        style={
+                          styles.liveDot
+                        }
+                      />
+
+                      <Text
+                        style={
+                          styles.liveText
+                        }
+                      >
+                        LIVE
+                      </Text>
+
+                    </View>
+
+                  )}
+
+                </View>
+
+              );
+
+            }
+          )
+
         )}
 
-        {/* EMPTY STATE */}
-        {filteredToday.length === 0 &&
-          filteredYesterday.length === 0 && (
-            <View style={styles.emptyState}>
-              <View style={styles.emptyIcon}>
-                <Ionicons
-                  name="notifications-off-outline"
-                  size={30}
-                  color="#7C3AED"
-                />
-              </View>
-
-              <Text
-                style={[
-                  styles.emptyTitle,
-                  {
-                    color:
-                      colors.primaryText,
-                  },
-                ]}
-              >
-                No alerts found
-              </Text>
-
-              <Text
-                style={[
-                  styles.emptyDescription,
-                  {
-                    color:
-                      colors.secondaryText,
-                  },
-                ]}
-              >
-                There are no alerts in this
-                category.
-              </Text>
-            </View>
-          )}
       </ScrollView>
+
     </View>
+
   );
 }
 
-function AlertSection({
+
+// ============================================================
+// SUMMARY CARD
+// ============================================================
+
+function SummaryCard({
   title,
-  alerts,
+  count,
+  duration,
+  color,
   colors,
-  isDark,
 }: {
   title: string;
-  alerts: AlertItem[];
+
+  count: number;
+
+  duration: number;
+
+  color: string;
+
   colors: {
-    background: string;
     card: string;
     border: string;
     primaryText: string;
     secondaryText: string;
-    timeText: string;
-    filterText: string;
-    selectedFilterText: string;
-    navIcon: string;
   };
-  isDark: boolean;
 }) {
+
   return (
-    <View style={styles.section}>
+
+    <View
+      style={[
+        styles.summaryCard,
+        {
+          backgroundColor:
+            colors.card,
+
+          borderColor:
+            colors.border,
+        },
+      ]}
+    >
+
+      <View
+        style={[
+          styles.summaryIcon,
+          {
+            backgroundColor:
+              `${color}18`,
+          },
+        ]}
+      >
+
+        <Ionicons
+          name={
+            title === "SOS"
+              ? "alert-circle-outline"
+              : title === "Danger"
+              ? "warning-outline"
+              : "notifications-outline"
+          }
+          size={22}
+          color={color}
+        />
+
+      </View>
+
+
       <Text
         style={[
-          styles.sectionTitle,
+          styles.summaryTitle,
           {
-            color: colors.primaryText,
+            color:
+              colors.secondaryText,
           },
         ]}
       >
         {title}
       </Text>
 
-      {alerts.map((alert, index) => {
-        const alertStyle =
-          alertColors[alert.type];
 
-        return (
-          <Pressable
-            key={`${alert.title}-${index}`}
-            style={({ pressed }) => [
-              styles.alertCard,
-              {
-                backgroundColor:
-                  colors.card,
-                borderColor:
-                  colors.border,
-              },
-              pressed &&
-                styles.alertCardPressed,
-            ]}
-          >
-            {/* ICON */}
-            <View
-              style={[
-                styles.alertIconContainer,
-                {
-                  backgroundColor: isDark
-                    ? alertStyle.darkBackground
-                    : alertStyle.lightBackground,
-                },
-              ]}
-            >
-              <Ionicons
-                name={alert.icon}
-                size={23}
-                color={alertStyle.primary}
-              />
-            </View>
+      <Text
+        style={[
+          styles.summaryCount,
+          {
+            color,
+          },
+        ]}
+      >
+        {count}
+      </Text>
 
-            {/* CONTENT */}
-            <View style={styles.alertContent}>
-              <Text
-                style={[
-                  styles.alertTitle,
-                  {
-                    color:
-                      colors.primaryText,
-                  },
-                ]}
-                numberOfLines={1}
-              >
-                {alert.title}
-              </Text>
 
-              <Text
-                style={[
-                  styles.alertDescription,
-                  {
-                    color:
-                      colors.secondaryText,
-                  },
-                ]}
-                numberOfLines={1}
-              >
-                {alert.description}
-              </Text>
-            </View>
+      <Text
+        style={[
+          styles.summaryDuration,
+          {
+            color:
+              colors.secondaryText,
+          },
+        ]}
+      >
+        {formatDuration(
+          duration
+        )}
+      </Text>
 
-            {/* TIME */}
-            <Text
-              style={[
-                styles.alertTime,
-                {
-                  color: colors.timeText,
-                },
-              ]}
-            >
-              {alert.time}
-            </Text>
-          </Pressable>
-        );
-      })}
     </View>
+
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
 
-  topSafeArea: {
-    width: '100%',
-  },
+// ============================================================
+// STYLES
+// ============================================================
 
-  /* HEADER */
+const styles =
+  StyleSheet.create({
 
-  header: {
-    height: 52,
-    paddingHorizontal: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
+    container: {
+      flex: 1,
+    },
 
-  headerSide: {
-    width: 40,
-  },
+    topSafeArea: {
+      width: "100%",
+    },
 
-  headerTitle: {
-    fontSize: 21,
-    fontWeight: '700',
-  },
 
-  filterButton: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+    header: {
+      height: 58,
 
-  /* FILTERS */
+      paddingHorizontal: 18,
 
-  filterContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 18,
-    gap: 8,
-    marginTop: 3,
-    marginBottom: 5,
-  },
+      flexDirection:
+        "row",
 
-  filterPill: {
-    flex: 1,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+      alignItems:
+        "center",
 
-  filterPillSelected: {
-    backgroundColor: '#7C3AED',
-    borderColor: '#7C3AED',
-  },
+      justifyContent:
+        "space-between",
+    },
 
-  filterText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
+    headerSide: {
+      width: 35,
+    },
 
-  /* LIST */
+    headerTitle: {
+      fontSize: 21,
+      fontWeight: "800",
+    },
 
-  scrollContent: {
-    paddingHorizontal: 18,
-    paddingTop: 4,
-  },
 
-  section: {
-    marginBottom: 3,
-  },
+    filterContainer: {
 
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    marginTop: 13,
-    marginBottom: 10,
-  },
+      flexDirection:
+        "row",
 
-  /* ALERT CARD */
+      paddingHorizontal: 18,
 
-  alertCard: {
-    height: 78,
-    borderRadius: 17,
-    borderWidth: 1,
-    marginBottom: 9,
-    paddingHorizontal: 13,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
+      gap: 8,
 
-  alertCardPressed: {
-    opacity: 0.72,
-  },
+      marginBottom: 8,
+    },
 
-  alertIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
+    filterPill: {
 
-  alertContent: {
-    flex: 1,
-    paddingRight: 5,
-  },
+      flex: 1,
 
-  alertTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
+      height: 38,
 
-  alertDescription: {
-    fontSize: 12.5,
-  },
+      borderRadius: 19,
 
-  alertTime: {
-    fontSize: 11,
-    fontWeight: '500',
-    alignSelf: 'flex-start',
-    marginTop: 4,
-  },
+      borderWidth: 1,
 
-  /* EMPTY */
+      alignItems:
+        "center",
 
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 100,
-    paddingHorizontal: 30,
-  },
+      justifyContent:
+        "center",
+    },
 
-  emptyIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor:
-      'rgba(124, 58, 237, 0.10)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 15,
-  },
+    filterPillSelected: {
 
-  emptyTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    marginBottom: 6,
-  },
+      backgroundColor:
+        "#7C3AED",
 
-  emptyDescription: {
-    fontSize: 13,
-    textAlign: 'center',
-  },
-});
+      borderColor:
+        "#7C3AED",
+    },
+
+    filterText: {
+
+      fontSize: 12,
+
+      fontWeight: "700",
+    },
+
+
+    scrollContent: {
+
+      paddingHorizontal: 18,
+
+      paddingTop: 4,
+    },
+
+
+    sectionTitle: {
+
+      fontSize: 18,
+
+      fontWeight: "800",
+
+      marginTop: 14,
+
+      marginBottom: 10,
+    },
+
+
+    summaryGrid: {
+
+      flexDirection:
+        "row",
+
+      gap: 8,
+    },
+
+    summaryCard: {
+
+      flex: 1,
+
+      minHeight: 142,
+
+      borderRadius: 17,
+
+      borderWidth: 1,
+
+      padding: 12,
+
+      alignItems:
+        "center",
+    },
+
+    summaryIcon: {
+
+      width: 40,
+
+      height: 40,
+
+      borderRadius: 13,
+
+      alignItems:
+        "center",
+
+      justifyContent:
+        "center",
+
+      marginBottom: 7,
+    },
+
+    summaryTitle: {
+
+      fontSize: 12,
+
+      fontWeight: "700",
+    },
+
+    summaryCount: {
+
+      fontSize: 28,
+
+      fontWeight: "900",
+
+      marginTop: 2,
+    },
+
+    summaryDuration: {
+
+      fontSize: 11,
+
+      marginTop: 1,
+    },
+
+
+    activeCard: {
+
+      minHeight: 76,
+
+      borderRadius: 17,
+
+      borderWidth: 1,
+
+      paddingHorizontal: 13,
+
+      flexDirection:
+        "row",
+
+      alignItems:
+        "center",
+
+      marginBottom: 9,
+    },
+
+    activeIcon: {
+
+      width: 46,
+
+      height: 46,
+
+      borderRadius: 14,
+
+      alignItems:
+        "center",
+
+      justifyContent:
+        "center",
+
+      marginRight: 12,
+    },
+
+    activeContent: {
+
+      flex: 1,
+    },
+
+    activeTitle: {
+
+      fontSize: 15,
+
+      fontWeight: "800",
+
+      marginBottom: 4,
+    },
+
+    activeDescription: {
+
+      fontSize: 12,
+    },
+
+
+    liveBadge: {
+
+      flexDirection:
+        "row",
+
+      alignItems:
+        "center",
+
+      gap: 5,
+
+      paddingHorizontal: 8,
+
+      paddingVertical: 5,
+
+      borderRadius: 10,
+
+      backgroundColor:
+        "rgba(0,201,133,0.10)",
+    },
+
+    liveDot: {
+
+      width: 6,
+
+      height: 6,
+
+      borderRadius: 3,
+
+      backgroundColor:
+        "#00C985",
+    },
+
+    liveText: {
+
+      fontSize: 9,
+
+      fontWeight: "900",
+
+      color:
+        "#00C985",
+    },
+
+
+    alertCard: {
+
+      minHeight: 82,
+
+      borderRadius: 17,
+
+      borderWidth: 1,
+
+      marginBottom: 9,
+
+      paddingHorizontal: 13,
+
+      paddingVertical: 10,
+
+      flexDirection:
+        "row",
+
+      alignItems:
+        "center",
+    },
+
+    alertIconContainer: {
+
+      width: 48,
+
+      height: 48,
+
+      borderRadius: 15,
+
+      alignItems:
+        "center",
+
+      justifyContent:
+        "center",
+
+      marginRight: 12,
+    },
+
+    alertContent: {
+
+      flex: 1,
+
+      paddingRight: 5,
+    },
+
+    alertTitle: {
+
+      fontSize: 15,
+
+      fontWeight: "800",
+
+      marginBottom: 4,
+    },
+
+    alertDescription: {
+
+      fontSize: 12.5,
+
+      marginBottom: 3,
+    },
+
+    alertStartTime: {
+
+      fontSize: 10.5,
+    },
+
+
+    emptyState: {
+
+      alignItems:
+        "center",
+
+      justifyContent:
+        "center",
+
+      paddingTop: 70,
+
+      paddingHorizontal: 30,
+    },
+
+    emptyTitle: {
+
+      fontSize: 17,
+
+      fontWeight: "800",
+
+      marginTop: 12,
+
+      marginBottom: 6,
+    },
+
+    emptyDescription: {
+
+      fontSize: 13,
+
+      textAlign:
+        "center",
+    },
+
+  });
