@@ -1879,7 +1879,7 @@ const handleTrafficSOS =
                   <Image
                     source={{
                       uri:
-                        "http://172.25.93.176:5000/video",
+                        "http://10.220.253.176:5000/video",
                     }}
                     style={
                       styles.cameraFeed
